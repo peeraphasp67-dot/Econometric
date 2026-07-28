@@ -1,0 +1,26 @@
+{
+    "OLS Regression": {
+        "R2_Score": 0.4018,
+        "RMSE": 1.0498,
+        "MAE": 0.7373,
+        "Filename": "ols_model.joblib"
+    },
+    "Ridge Regression": {
+        "R2_Score": 0.4017,
+        "RMSE": 1.0498,
+        "MAE": 0.7373,
+        "Filename": "ridge_model.joblib"
+    },
+    "Random Forest": {
+        "R2_Score": 0.8693,
+        "RMSE": 0.4908,
+        "MAE": 0.1863,
+        "Filename": "rf_model.joblib"
+    },
+    "XGBoost": {
+        "R2_Score": 0.8426,
+        "RMSE": 0.5385,
+        "MAE": 0.2962,
+        "Filename": "xgb_model.joblib"
+    }
+}
