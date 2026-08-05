@@ -4,6 +4,15 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import statsmodels.api as sm
+import i18n
+
+# -----------------------------------------------------------------------------
+# 0. LANGUAGE STATE — forced default, before any widget (incl. set_page_config)
+# -----------------------------------------------------------------------------
+# Every fresh session MUST start in English. setdefault() only writes when the
+# key is absent, so an explicit user selection later in the same session is
+# never overwritten by this line on subsequent reruns.
+st.session_state.setdefault("current_lang", i18n.DEFAULT_LANG)
 
 # -----------------------------------------------------------------------------
 # 1. PAGE CONFIGURATION & ENTERPRISE DESIGN CSS
@@ -356,160 +365,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# -----------------------------------------------------------------------------
-# 2. BILINGUAL TRANSLATION DICTIONARY
-# -----------------------------------------------------------------------------
-STRINGS = {
-        "header_subtitle": "Empirical Analysis using Propensity Score Matching (PSM), Moderated Regressions, and SHAP Explainable AI",
-        "sidebar_title": "Control Panel & Filters",
-        "cat_filter": "Product Category",
-        "all_cats": "All Categories",
-        "price_filter": "Price Range ($)",
-        # Data source / upload
-        "data_source_title": "Dataset Source",
-        "use_demo_toggle": "Use Demo Dataset",
-        "upload_label": "Upload your own dataset (.csv / .xlsx)",
-        "upload_help": "Upload a tabular file, then map its columns below to the roles required by the analysis pipeline.",
-        "mapping_title": "Column Mapping",
-        "mapping_help": "Match your file's columns to the variable roles used by the analysis engine.",
-        "map_target": "Target Variable (Sales Volume / Revenue) *",
-        "map_treatment": "Treatment Variable (Eco-Badge / Certification) *",
-        "map_price": "Price Variable *",
-        "map_reviews": "Social Proof / Reviews Variable",
-        "map_rating": "Rating Variable",
-        "map_coupon": "Promo / Coupon Variable",
-        "map_sponsored": "Sponsored / Ad Variable",
-        "map_category": "Category Variable (for filtering)",
-        "map_none": "— None —",
-        "map_treated_values": "Select value(s) representing the TREATED group",
-        "map_positive_values": "Select value(s) representing an ACTIVE / YES state",
-        "err_missing_required": "Required column mapping is incomplete. Please map: Target, Treatment, and Price before the pipeline can run.",
-        "err_no_treated_values": "Please select at least one value that represents the treated group for the Treatment Variable.",
-        "err_dtype": "Column '{col}' mapped to {role} could not be converted to a numeric type ({n_bad} invalid values found). Please choose a numeric column.",
-        "err_empty_after_clean": "After cleaning, no valid rows remain. Please check your file and column mapping.",
-        "warn_optional_missing": "Optional variable '{role}' was not mapped — a neutral default will be used, and any analysis relying on it may be less informative.",
-        "warn_negative_values": "Column '{col}' contains negative values; they were clipped to 0 before log-transformation.",
-        "warn_small_sample_generic": "⚠️ Sample size is small (N={n}). Downstream statistical results may be unstable.",
-        "warn_psm_fallback": "⚠️ Sample too small / imbalanced for reliable 1:1 Propensity Score Matching. Falling back to the full (unmatched) sample.",
-        "download_regression_csv": "⬇️ Download Regression Results (CSV)",
-        "download_compare_csv": "⬇️ Download Model Comparison (CSV)",
-        # Model selection badges
-        "badge_parametric": "📌 Displaying Parametric Econometric Specification: {model_name}",
-        "badge_nonparametric": "📌 Displaying Non-Parametric Machine Learning Metrics: {model_name}",
-        "badge_shap_engine": "📌 Active SHAP & Feature Attribution Engine: {model_name}",
-        "badge_sim_engine": "⚡ Active Prediction Engine: {model_name}",
-        "linear_shap_note": "ℹ️ Linear Model Selected: Linear models (OLS / Ridge) have constant marginal feature effects (beta coefficients). Decision boundaries are linear across price ranges. Select Random Forest or XGBoost in the sidebar to inspect non-linear tree decision boundaries and SHAP curves.",
-        # Executive Summary Metrics
-        "metric_total_products": "TOTAL PRODUCTS ANALYSED",
-        "metric_green_share": "TREATMENT (GREEN) SHARE",
-        "metric_psm_sample": "PSM MATCHED SAMPLE",
-        "metric_critical_boundary": "CRITICAL PRICE BOUNDARY",
-        "critical_boundary_na": "N/A",
-        # Tabs
-        "tab_overview": "Overview & Green Scarcity",
-        "tab_model": "Model Analysis & Specification",
-        "tab_shap": "SHAP & Non-Linear Boundary Analysis",
-        "tab_simulator": "Interactive Scenario & Pricing Simulator",
-        # Tab 1: Overview
-        "exec_summary": "Executive Summary & Key Empirical Anchors",
-        "overview_chart_title": "Median Target by Treatment Group",
-        "overview_chart_subtitle": "Comparing median target values across treatment categories",
-        "scale_toggle": "Axis Scaling Mode",
-        "scale_linear": "Linear Scale",
-        "scale_log": "Logarithmic Scale (Recommended for Outliers)",
-        "outlier_filter_toggle": "Exclude low-sample groups (<10 products)",
-        "x_axis_median_sales": "Median Target Value",
-        "y_axis_tag": "Treatment Group",
-        "no_tag_data": "No group data available for the current filter selection.",
-        "psm_balance_title": "Propensity Score Matching (PSM) Covariate Balance",
-        "psm_balance_subtitle": "Selection bias correction: standardized differences before vs. after matching, computed on the active dataset",
-        "psm_info_box": "<b>Selection Bias Correction via PSM:</b> In observational data, treatment adoption is often confounded by other product characteristics. Using 1:1 Nearest-Neighbor Propensity Score Matching (N={n_matched:,}; {n_pairs:,} Pairs), treated products are matched with control products of similar price, rating, review scale, and promo status — reducing Mean Absolute Standardized Difference (MASD).",
-        "psm_unmatched_info_box": "<b>PSM Not Applied:</b> The active sample did not have enough treated/control observations for reliable 1:1 matching, so the covariate balance chart below reflects the raw (unmatched) sample only.",
-        "table_download": "⬇️ Download Group Summary (CSV)",
-        # Tab 2: Model
-        "model_sample_selector": "Select Econometric Sample Specification:",
-        "sample_full": "Full Sample (N={n:,})",
-        "sample_psm": "PSM Matched Sample (N={n:,})",
-        "model_title": "Model Specification Analysis ({model_name})",
-        "dep_var_label": "**Dependent Variable:** $\\ln(\\text{{{target_label}}} + 1)$",
-        "col_group": "Variable Group",
-        "col_variable": "Variable / Predictor",
-        "col_coef": "Coefficient (β)",
-        "col_std_err": "Std Error",
-        "col_t_val": "t-statistic",
-        "col_p_val": "P-value",
-        "col_sig": "Significance",
-        "sig_legend": "**Significance levels:** `***` p < 0.001 | `**` p < 0.01 | `*` p < 0.05 | `.` p < 0.1 | `ns` Not Significant",
-        "metric_r2": "R-squared",
-        "metric_adj_r2": "Adjusted R-squared",
-        "metric_f_stat": "F-statistic",
-        "metric_n_obs": "Observations (N)",
-        "metric_residual_var": "Residual Variance (σ²)",
-        "group_green_badges": "🌿 Treatment & Moderation Interactions",
-        "group_seller_controls": "🏷️ Seller/Functional Controls",
-        "group_model_controls": "📊 Market & Product Controls",
-        "h1_title": "H1: Price Elasticity Moderation",
-        "h1_desc": "{sign_word} coefficient on <code>{treat_label} × Log({price_label})</code> (β = {beta:+.3f}, {p_str}) {verb} that {treat_label} {effect_word} price elasticity.",
-        "h2_title": "H2: Social Proof Substitution Effect",
-        "h2_desc": "{sign_word} interaction on <code>{treat_label} × Log({reviews_label})</code> (β = {beta:+.3f}, {p_str}) {verb} that the treatment {effect_word2} act as an alternative credibility signal for products with lower review volume.",
-        "h3_title": "H3: Promotional Synergy",
-        "h3_desc": "Interaction on <code>{treat_label} × {coupon_label}</code> (β = {beta:+.3f}, {p_str}) tests promotional synergy between discounts and the treatment signal.",
-        # Tab 3: SHAP
-        "shap_title": "SHAP Explainable AI & Non-Linear Boundary Analysis",
-        "shap_subtitle": "Uncovering Non-Linear Decision Boundaries via Elaboration Likelihood Model (ELM)",
-        "shap_summary_title": "Global Feature Importance ({model_name})",
-        "shap_summary_desc": "Impact of features on predicted log target value",
-        "shap_dep_title": "Non-Linear Decision Boundary: Critical Price Threshold ({lo} – {hi})",
-        "shap_dep_subtitle": "Treatment Marginal Utility (SHAP Value) vs {price_label}",
-        "elm_card_title": "Elaboration Likelihood Model (ELM) Theoretical Framework",
-        "elm_low_title": "System 1 / Peripheral Route (< {lo})",
-        "elm_low_desc": "Low cognitive elaboration. Choice is driven by baseline price; treatment marginal utility is low (~{low_val:+.2f} SHAP).",
-        "elm_mid_title": "Critical Cognitive Boundary ({lo} – {hi})",
-        "elm_mid_desc": "Inflection threshold. Price level triggers Central Route processing; the treatment serves as psychological justification for high-ticket purchases.",
-        "elm_high_title": "System 2 / Central Route (> {hi})",
-        "elm_high_desc": "High cognitive elaboration. Treatment provides substantial marginal utility ({high_val:+.2f} SHAP), dampening price sensitivity.",
-        "shap_boundary_unavailable": "Not enough price variation in the active sample to estimate a stable decision boundary.",
-        # Tab 4: Simulator
-        "sim_title": "Interactive Scenario & Pricing Simulator",
-        "sim_desc": "Simulate model-predicted target values based on product attributes and observe elasticity moderation and social proof substitution effects.",
-        "sim_price_label": "Target Price ($)",
-        "sim_rating_label": "Target Rating",
-        "sim_reviews_label": "Expected Total Reviews",
-        "sim_sponsored_label": "Run Sponsored Ad Campaign?",
-        "sim_coupon_label": "Offer Discount Coupon?",
-        "sim_tag_label": "Select Treatment (Treated Group)",
-        "sim_none_tag": "None (Control / Standard Product)",
-        "sim_result_header": "Model-Predicted Association Results",
-        "sim_standard_product": "Control Product (No Treatment)",
-        "sim_green_product": "Treated Product",
-        "sim_conditional_diff": "Conditional Difference (%)",
-        "sim_units_unit": "units / period",
-        "sim_comparison_chart_title": "Model-Predicted Target: Control vs. Treated",
-        "sim_standard_label": "Control Product",
-        "sim_tagged_label": "Treated Product",
-        "sim_select_tag_prompt": "Select a Treatment value above to see predicted conditional differences.",
-        "elasticity_title": "Moderated Price Elasticity Estimation",
-        "elasticity_standard": "Control Elasticity: {eta_std:.2f}",
-        "elasticity_green": "Treated Elasticity: {eta_green:.2f}",
-        "elasticity_desc": "The treatment shifts price elasticity from {eta_std:.2f} to {eta_green:.2f}, buffering sales penalties on high-ticket items.",
-        "substitution_title": "Social Proof Substitution Quantifier",
-        "substitution_desc": "At {reviews:,} reviews, the treatment provides an equivalent credibility boost of **+{eq_reviews:,} reviews** (+{pct_lift:.1f}% target lift).",
-        "ci_label": "95% CI",
-        "disclaimer_text": "Note: Results reflect observational associations derived from cross-sectional data, not guaranteed causal impacts.",
-        "small_sample_warning": "⚠️ Warning: Sample size is too small (N={n} < 30). Statistical inferences and p-values may be uninterpretable.",
-        # Variable name mappings (used only for the Demo dataset)
-        "var_const": "Intercept (Const)",
-        "var_is_green_binary": "Eco-Badge (Sustainability Tag)",
-        "var_log_price": "Log(Discounted Price + 1)",
-        "var_log_reviews": "Log(Total Reviews + 1)",
-        "var_product_rating": "Product Rating (1-5)",
-        "var_is_sponsored_binary": "Sponsored Product (Dummy)",
-        "var_has_coupon_binary": "Has Discount Coupon (Dummy)",
-        "var_interaction_price_green": "Eco-Badge × Log(Price) [H1: Elasticity Moderation]",
-        "var_interaction_reviews_green": "Eco-Badge × Log(Reviews) [H2: Social Proof Substitution]",
-        "var_interaction_coupon_green": "Eco-Badge × Coupon [H3: Promotional Synergy]",
-}
-
 
 GREEN_TAGS_DEFAULT = [
     'Carbon impact',
@@ -562,9 +417,12 @@ CHART_GRIDCOLOR = 'rgba(100,116,139,0.14)'
 CHART_HOVERLABEL = dict(bgcolor='#FFFFFF', bordercolor='#E2E8F0', font=dict(family="'Inter', sans-serif", size=12, color='#0F172A'))
 
 
+LANG_KEY = "current_lang"
+
+
 def t(key):
-    """Retrieve a UI string by key."""
-    return STRINGS.get(key, key)
+    """Retrieve a UI string in the active language, falling back to English."""
+    return i18n.t(key, st.session_state.get(LANG_KEY, i18n.DEFAULT_LANG))
 
 
 def get_sig_stars(p_val):
@@ -588,6 +446,35 @@ def fmt_p(p_val):
 
 
 # -----------------------------------------------------------------------------
+# 3B. LANGUAGE SELECTOR (top of sidebar, before everything else)
+# -----------------------------------------------------------------------------
+# current_lang was already forced to i18n.DEFAULT_LANG ("en") via setdefault()
+# at the very top of the script if this is a fresh session, so the index
+# computed here always lands on "🇺🇸 English" the first time the app loads.
+_current_lang_value = st.session_state.get(LANG_KEY, i18n.DEFAULT_LANG)
+if _current_lang_value not in i18n.LANGUAGE_CODES:
+    _current_lang_value = i18n.DEFAULT_LANG
+
+st.sidebar.selectbox(
+    i18n.t("lang_selector_label", _current_lang_value),
+    options=i18n.LANGUAGE_CODES,
+    format_func=i18n.language_label,
+    index=i18n.LANGUAGE_CODES.index(_current_lang_value),
+    key=LANG_KEY,
+)
+active_lang = st.session_state.get(LANG_KEY, i18n.DEFAULT_LANG)
+
+# RTL is applied STRICTLY and ONLY when Arabic is the explicitly active
+# language; every other language (including on first load) gets an explicit
+# LTR reset so no RTL styling can ever leak from a prior state/rerun.
+if active_lang == "ar" and i18n.is_rtl(active_lang):
+    st.markdown(i18n.RTL_CSS, unsafe_allow_html=True)
+else:
+    st.markdown(i18n.LTR_CSS, unsafe_allow_html=True)
+
+st.sidebar.markdown("---")
+
+# -----------------------------------------------------------------------------
 # 4. DATA SOURCE: DEMO DATASET OR USER UPLOAD
 # -----------------------------------------------------------------------------
 st.sidebar.title(t('data_source_title'))
@@ -603,20 +490,22 @@ use_demo = st.sidebar.checkbox(t('use_demo_toggle'), value=(uploaded_file is Non
 # Empty-state schema teaching card — shown while the demo dataset is active,
 # so a new user knows exactly which column roles their own file should have.
 if use_demo or uploaded_file is None:
+    _schema_rows = [
+        (t('schema_target'), t('required_tag')),
+        (t('schema_treatment'), t('required_tag')),
+        (t('schema_price'), t('required_tag')),
+        (t('schema_reviews'), t('optional_tag')),
+        (t('schema_rating'), t('optional_tag')),
+        (t('schema_coupon'), t('optional_tag')),
+        (t('schema_sponsored'), t('optional_tag')),
+        (t('schema_category'), t('optional_tag')),
+    ]
+    _schema_items = "".join(f"<li>{label} <i>({tag})</i></li>" for label, tag in _schema_rows)
     st.sidebar.markdown(
-        """
+        f"""
         <div class="schema-card">
-            <div class="schema-title">Expected Column Schema</div>
-            <ul>
-                <li><b>Target</b> — Sales Volume / Revenue <i>(required)</i></li>
-                <li><b>Treatment</b> — Eco-Badge / Certification <i>(required)</i></li>
-                <li><b>Price</b> — Product Price <i>(required)</i></li>
-                <li><b>Reviews</b> — Social Proof / Review Count <i>(optional)</i></li>
-                <li><b>Rating</b> — Product Rating <i>(optional)</i></li>
-                <li><b>Coupon</b> — Promo / Discount Flag <i>(optional)</i></li>
-                <li><b>Sponsored</b> — Ad / Sponsored Flag <i>(optional)</i></li>
-                <li><b>Category</b> — Product Category <i>(optional)</i></li>
-            </ul>
+            <div class="schema-title">{t('schema_card_title')}</div>
+            <ul>{_schema_items}</ul>
         </div>
         """,
         unsafe_allow_html=True
@@ -660,12 +549,12 @@ if raw_df is None or len(raw_df) == 0:
     st.stop()
 
 # Dynamic branding: reflect the active dataset in the page title and header
-active_dataset_label = "Demo Amazon Dataset" if is_demo_active else uploaded_file.name
+active_dataset_label = t('demo_dataset_label') if is_demo_active else uploaded_file.name
 
 st.title(f"PriceLens — {active_dataset_label}")
 st.markdown(f'<p style="color: #333333; font-size: 1.05rem; font-weight: 500; margin-top: -10px; margin-bottom: 20px;">{t("header_subtitle")}</p>', unsafe_allow_html=True)
 st.markdown(
-    f'<div class="data-source-badge">📊 Active Dataset: {active_dataset_label} (N={len(raw_df):,} rows)</div>',
+    f'<div class="data-source-badge">{t("active_dataset_badge").format(label=active_dataset_label, n=f"{len(raw_df):,}")}</div>',
     unsafe_allow_html=True
 )
 
@@ -942,7 +831,7 @@ def run_psm(df_in, covariates, data_key):
         return df_in.copy(), False
 
 
-with st.spinner("Running Propensity Score Matching..."):
+with st.spinner(t('spinner_psm')):
     _data_key = f"{len(df)}_{int(df['is_green_binary'].sum())}_{hash(tuple(df.columns))}"
     psm_df, psm_matched = run_psm(df, PSM_COVARIATES, _data_key)
 
@@ -975,7 +864,7 @@ if selected_category != t('all_cats'):
     filtered_psm_df = filtered_psm_df[filtered_psm_df['product_category'] == selected_category]
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("Predictive Model")
+st.sidebar.subheader(t('predictive_model_header'))
 
 model_options = {
     "ols": "OLS Regression (Recommended for Econometrics)",
@@ -985,7 +874,7 @@ model_options = {
 }
 
 selected_model_key = st.sidebar.selectbox(
-    "Select Model Engine",
+    t('select_model_engine'),
     options=MODEL_OPTIONS_ORDER,
     format_func=lambda x: model_options[x],
     key="active_model_engine"
@@ -1009,11 +898,11 @@ if is_demo_active:
         'interaction_reviews_green': t('var_interaction_reviews_green'),
         'interaction_coupon_green': t('var_interaction_coupon_green'),
     }
-    TARGET_LABEL = "Purchased Last Month"
+    TARGET_LABEL = t('demo_target_label')
     TREAT_LABEL = t('var_is_green_binary')
-    PRICE_LABEL = "Discounted Price"
-    REVIEWS_LABEL = "Total Reviews"
-    COUPON_LABEL = "Coupon"
+    PRICE_LABEL = t('demo_price_label')
+    REVIEWS_LABEL = t('demo_reviews_label')
+    COUPON_LABEL = t('demo_coupon_label')
 else:
     TARGET_LABEL = mapping["target"]
     TREAT_LABEL = mapping["treatment"]
@@ -1342,14 +1231,14 @@ with tabs[0]:
     fig_masd.add_trace(go.Bar(
         x=masd_data['Covariate'],
         y=masd_data['Raw Sample MASD'],
-        name=f'Raw Sample (N={len(filtered_df):,})',
+        name=t('legend_raw_sample').format(n=f"{len(filtered_df):,}"),
         marker_color='#EF4444'
     ))
     if psm_matched:
         fig_masd.add_trace(go.Bar(
             x=masd_data['Covariate'],
             y=masd_data['PSM Matched MASD'],
-            name=f'PSM Matched Sample (N={len(filtered_psm_df):,})',
+            name=t('legend_psm_matched').format(n=f"{len(filtered_psm_df):,}"),
             marker_color='#10B981'
         ))
 
@@ -1357,7 +1246,7 @@ with tabs[0]:
         y=0.05,
         line_dash="dash",
         line_color="#F59E0B",
-        annotation_text="Covariate Balance Threshold (MASD = 0.05)",
+        annotation_text=t('masd_threshold_annotation'),
         annotation_position="top right"
     )
 
@@ -1369,7 +1258,7 @@ with tabs[0]:
         barmode='group',
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        yaxis=dict(title='Mean Absolute Standardized Difference (MASD)', showgrid=True, gridcolor=CHART_GRIDCOLOR),
+        yaxis=dict(title=t('masd_yaxis_title'), showgrid=True, gridcolor=CHART_GRIDCOLOR),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     st.plotly_chart(fig_masd, use_container_width=True, theme="streamlit", config=PLOTLY_CONFIG)
@@ -1410,7 +1299,7 @@ with tabs[1]:
             st.markdown(t('dep_var_label').format(target_label=TARGET_LABEL))
 
             if selected_model_key == "ols":
-                with st.spinner("Fitting OLS model..."):
+                with st.spinner(t('spinner_ols')):
                     model_fit = fit_ols(X, y, data_hash)
 
                 var_display_list = [translate_var_name(v) for v in model_fit.params.index]
@@ -1465,7 +1354,7 @@ with tabs[1]:
             else:  # Ridge Regression
                 from sklearn.metrics import r2_score as sk_r2
 
-                with st.spinner("Fitting Ridge model..."):
+                with st.spinner(t('spinner_ridge')):
                     ridge_sk = fit_ridge(X, y, data_hash)
 
                 var_names = ['const'] + X_VARS
@@ -1487,7 +1376,7 @@ with tabs[1]:
                 display_df[t('col_coef')] = results_df[t('col_coef')].apply(lambda x: f"{x:.4f}")
 
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
-                st.info("ℹ️ Ridge regression is a regularized L2 estimator (alpha=1.0). Standard errors and P-values are regularized to prevent collinearity bias.")
+                st.info(t('ridge_info_box'))
 
                 y_pred = ridge_sk.predict(X)
                 r2_val = sk_r2(y, y_pred)
@@ -1522,13 +1411,7 @@ with tabs[1]:
                 beta_h3 = params.get('interaction_coupon_green', 0.0)
                 p_h3 = pvalues.get('interaction_coupon_green', 1.0)
 
-                wb = {
-                    "pos": "Positive", "neg": "Negative",
-                    "confirm_yes": "confirms", "confirm_no": "does not clearly confirm",
-                    "dampens": "dampens", "amplifies": "amplifies",
-                    "indicate_yes": "indicates", "indicate_no": "does not clearly indicate",
-                    "may": "may", "does": "does",
-                }
+                wb = i18n.get_word_bank(active_lang)
 
                 sign_word = wb["pos"] if beta_h1 >= 0 else wb["neg"]
                 verb = wb["confirm_yes"] if p_h1 < 0.05 else wb["confirm_no"]
@@ -1578,7 +1461,7 @@ with tabs[1]:
             # ----------------------------------------------------
             # BRANCH B: Non-Parametric Tree Models (RF / XGBoost)
             # ----------------------------------------------------
-            st.markdown(f"**Non-Parametric Model Active:** Coefficient tables and p-values are not defined for decision tree ensembles. Displaying Feature Importances & Model Evaluation Metrics for `{active_model_display_name}`.")
+            st.markdown(t('nonparam_active_note').format(model_name=active_model_display_name))
 
             with st.spinner(f"Training {active_model_display_name}..."):
                 tree_model, X_train, X_test, y_train, y_test = fit_tree_model(X, y, selected_model_key, data_hash)
@@ -1591,28 +1474,29 @@ with tabs[1]:
             mae_val = mean_absolute_error(y_test, y_pred)
 
             met_col1, met_col2, met_col3, met_col4 = st.columns(4)
-            met_col1.metric("R² Score (Test set)", f"{r2_val:.4f}")
-            met_col2.metric("RMSE (Test set)", f"{rmse_val:.4f}")
-            met_col3.metric("MAE (Test set)", f"{mae_val:.4f}")
-            met_col4.metric("Samples N (Train / Test)", f"{len(X_train):,} / {len(X_test):,}")
+            met_col1.metric(t('metric_r2_test'), f"{r2_val:.4f}")
+            met_col2.metric(t('metric_rmse_test'), f"{rmse_val:.4f}")
+            met_col3.metric(t('metric_mae_test'), f"{mae_val:.4f}")
+            met_col4.metric(t('metric_samples_traintest'), f"{len(X_train):,} / {len(X_test):,}")
 
             st.markdown("---")
-            st.subheader(f"Feature Importance Map ({active_model_display_name})")
+            st.subheader(t('feature_importance_map_title').format(model_name=active_model_display_name))
 
             importances = tree_model.feature_importances_
+            col_feature, col_importance = t('col_feature'), t('col_importance')
             feature_imp_df = pd.DataFrame({
-                "Feature": [translate_var_name(v) for v in X_VARS],
-                "Importance": importances
-            }).sort_values("Importance", ascending=True)
+                col_feature: [translate_var_name(v) for v in X_VARS],
+                col_importance: importances
+            }).sort_values(col_importance, ascending=True)
 
             fig_tree_imp = px.bar(
                 feature_imp_df,
-                x='Importance',
-                y='Feature',
+                x=col_importance,
+                y=col_feature,
                 orientation='h',
-                color='Importance',
+                color=col_importance,
                 color_continuous_scale='Blues',
-                text='Importance'
+                text=col_importance
             )
             fig_tree_imp.update_traces(texttemplate='%{text:.4f}', textposition='outside')
             fig_tree_imp.update_layout(
@@ -1631,7 +1515,7 @@ with tabs[1]:
             st.download_button(t('download_regression_csv'), data=csv_bytes, file_name=f"feature_importance_{selected_model_key}.csv", mime="text/csv")
 
     else:
-        st.warning("Insufficient data in selected sample filter.")
+        st.warning(t('warn_insufficient_sample'))
 
 
 # =============================================================================
@@ -1653,19 +1537,20 @@ with tabs[2]:
 
         if headline_stats is not None:
             beta_features = [v for v in X_VARS]
+            col_feature, col_beta = t('col_feature'), t('col_beta_magnitude')
             linear_imp_df = pd.DataFrame({
-                'Feature': [translate_var_name(v) for v in beta_features],
-                'Beta Magnitude |β|': [abs(headline_stats.params.get(v, 0.0)) for v in beta_features]
-            }).sort_values('Beta Magnitude |β|', ascending=True)
+                col_feature: [translate_var_name(v) for v in beta_features],
+                col_beta: [abs(headline_stats.params.get(v, 0.0)) for v in beta_features]
+            }).sort_values(col_beta, ascending=True)
 
             fig_lin_imp = px.bar(
                 linear_imp_df,
-                x='Beta Magnitude |β|',
-                y='Feature',
+                x=col_beta,
+                y=col_feature,
                 orientation='h',
-                color='Beta Magnitude |β|',
+                color=col_beta,
                 color_continuous_scale='Blues',
-                text='Beta Magnitude |β|'
+                text=col_beta
             )
             fig_lin_imp.update_traces(texttemplate='%{text:.3f}', textposition='outside')
             fig_lin_imp.update_layout(
@@ -1680,17 +1565,17 @@ with tabs[2]:
             )
             st.plotly_chart(fig_lin_imp, use_container_width=True, theme="streamlit", config=PLOTLY_CONFIG)
         else:
-            st.info("Not enough data to estimate standardized coefficients.")
+            st.info(t('info_not_enough_coef'))
 
     else:  # Tree Models (Random Forest / XGBoost) — real TreeSHAP
         if shap_sample_df is None:
-            st.warning("Insufficient data to compute SHAP values for the active filter.")
+            st.warning(t('warn_insufficient_shap'))
         else:
             X_full = shap_sample_df[X_VARS]
             y_full = shap_sample_df['log_purchased']
             data_hash = _df_hash(shap_sample_df, X_VARS + ['log_purchased'])
 
-            with st.spinner(f"Training {active_model_display_name}..."):
+            with st.spinner(t('spinner_train').format(model_name=active_model_display_name)):
                 tree_model, X_train, X_test, y_train, y_test = fit_tree_model(X_full, y_full, selected_model_key, data_hash)
 
             @st.cache_resource(show_spinner=False)
@@ -1703,7 +1588,7 @@ with tabs[2]:
             shap_sample_size = min(500, len(X_full))
             X_shap_sample = X_full.sample(shap_sample_size, random_state=42) if len(X_full) > shap_sample_size else X_full
 
-            with st.spinner("Computing SHAP values..."):
+            with st.spinner(t('spinner_shap')):
                 shap_values = compute_shap_values(tree_model, X_shap_sample, selected_model_key, data_hash, shap_sample_size)
 
             mean_abs_shap = np.abs(shap_values).mean(axis=0)
@@ -1711,19 +1596,20 @@ with tabs[2]:
             st.markdown(f"#### {t('shap_summary_title').format(model_name=active_model_display_name)}")
             st.markdown(f'<p style="color: #4A5568; font-size: 13px; margin-top: -4px;">{t("shap_summary_desc")}</p>', unsafe_allow_html=True)
 
+            col_feature, col_shap = t('col_feature'), t('col_mean_shap')
             shap_importance_df = pd.DataFrame({
-                'Feature': [translate_var_name(v) for v in X_VARS],
-                'Mean |SHAP Value|': mean_abs_shap
-            }).sort_values('Mean |SHAP Value|', ascending=True)
+                col_feature: [translate_var_name(v) for v in X_VARS],
+                col_shap: mean_abs_shap
+            }).sort_values(col_shap, ascending=True)
 
             fig_shap_imp = px.bar(
                 shap_importance_df,
-                x='Mean |SHAP Value|',
-                y='Feature',
+                x=col_shap,
+                y=col_feature,
                 orientation='h',
-                color='Mean |SHAP Value|',
+                color=col_shap,
                 color_continuous_scale='Blues',
-                text='Mean |SHAP Value|'
+                text=col_shap
             )
             fig_shap_imp.update_traces(texttemplate='%{text:.3f}', textposition='outside')
             fig_shap_imp.update_layout(
@@ -1777,9 +1663,9 @@ with tabs[2]:
                     x0=boundary_lo, x1=boundary_hi,
                     fillcolor="#F59E0B", opacity=0.22,
                     layer="below", line_width=0,
-                    annotation_text=f"Critical Price Boundary ({lo_str} – {hi_str})",
+                    annotation_text=t('critical_boundary_annotation').format(lo=lo_str, hi=hi_str),
                     annotation_position="top left",
-                    annotation=dict(font=dict(size=12, color="#B45309", family="Prompt"))
+                    annotation=dict(font=dict(size=12, color="#B45309", family="Inter"))
                 )
                 fig_dep.update_layout(
                     height=420,
@@ -1789,7 +1675,7 @@ with tabs[2]:
                     paper_bgcolor='rgba(0,0,0,0)',
                     plot_bgcolor='rgba(0,0,0,0)',
                     xaxis=dict(title=PRICE_LABEL, showgrid=True, gridcolor=CHART_GRIDCOLOR),
-                    yaxis=dict(title='Treatment Marginal SHAP Utility (Log Target Boost)', showgrid=True, gridcolor=CHART_GRIDCOLOR)
+                    yaxis=dict(title=t('shap_dep_utility_yaxis'), showgrid=True, gridcolor=CHART_GRIDCOLOR)
                 )
                 st.plotly_chart(fig_dep, use_container_width=True, theme="streamlit", config=PLOTLY_CONFIG)
 
@@ -1843,7 +1729,7 @@ with tabs[3]:
             group_choice_options = treated_values if len(treated_values) > 1 else ["Treated"]
             sim_tag = st.selectbox(t('sim_tag_label'), [t('sim_none_tag')] + [str(v) for v in group_choice_options])
 
-        with st.spinner("Generating prediction..."):
+        with st.spinner(t('spinner_predict')):
             pred_units_base, r2, rmse = predict_scenario(
                 selected_model_key, filtered_df, sim_price, 0, sim_rating, sim_reviews,
                 coupon=int(sim_coupon), sponsored=int(sim_sponsored)
@@ -1857,7 +1743,7 @@ with tabs[3]:
 
         st.markdown("---")
 
-        st.subheader("Econometric Heterogeneity & Moderation Metrics")
+        st.subheader(t('heterogeneity_header'))
         m_metric_1, m_metric_2 = st.columns(2)
 
         if headline_stats is not None:
@@ -1900,7 +1786,7 @@ with tabs[3]:
 
         pred_units_tagged = None
         if sim_tag != t('sim_none_tag'):
-            with st.spinner("Generating prediction..."):
+            with st.spinner(t('spinner_predict')):
                 pred_units_tagged, _, _ = predict_scenario(
                     selected_model_key, filtered_df, sim_price, 1, sim_rating, sim_reviews,
                     coupon=int(sim_coupon), sponsored=int(sim_sponsored)
@@ -1933,18 +1819,19 @@ with tabs[3]:
 
             res_col3.metric(t('sim_conditional_diff'), f"{pct_diff:+.1f}%", f"{diff_units:+,.0f} units")
 
+            col_predicted_value = t('col_predicted_value')
             comp_df = pd.DataFrame({
                 'Product Type': [t('sim_standard_label'), f"{t('sim_tagged_label')}: {sim_tag}"],
-                'Predicted Value': [pred_units_base, pred_units_tagged]
+                col_predicted_value: [pred_units_base, pred_units_tagged]
             })
 
             fig_comp = px.bar(
                 comp_df,
                 x='Product Type',
-                y='Predicted Value',
+                y=col_predicted_value,
                 color='Product Type',
                 color_discrete_sequence=['#94A3B8', '#2563EB'],
-                text='Predicted Value',
+                text=col_predicted_value,
                 title=t('sim_comparison_chart_title') + f" ({active_model_display_name})"
             )
             fig_comp.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
@@ -1956,7 +1843,7 @@ with tabs[3]:
                 showlegend=False,
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
-                yaxis=dict(showgrid=True, gridcolor=CHART_GRIDCOLOR, title='Predicted Value')
+                yaxis=dict(showgrid=True, gridcolor=CHART_GRIDCOLOR, title=col_predicted_value)
             )
             st.plotly_chart(fig_comp, use_container_width=True, theme="streamlit", config=PLOTLY_CONFIG)
         else:
@@ -1968,10 +1855,10 @@ with tabs[3]:
             st.info(t('sim_select_tag_prompt'))
 
         st.markdown("---")
-        st.subheader("Model Prediction Comparison")
+        st.subheader(t('model_compare_header'))
 
         compare_green_status = 1 if sim_tag != t('sim_none_tag') else 0
-        with st.spinner("Comparing models..."):
+        with st.spinner(t('spinner_compare')):
             compare_data = get_compare_predictions(
                 filtered_df, sim_price, compare_green_status, sim_rating, sim_reviews,
                 coupon=int(sim_coupon), sponsored=int(sim_sponsored)
@@ -1979,15 +1866,16 @@ with tabs[3]:
 
         selected_pred = pred_units_tagged if pred_units_tagged is not None else pred_units_base
 
+        col_model, col_predicted_value, col_diff = t('col_model'), t('col_predicted_value'), t('col_diff_vs_active')
         compare_rows = []
         for item in compare_data:
             m_pred = item.get("predicted_sales", 0.0)
             pct_diff = ((m_pred - selected_pred) / selected_pred * 100) if selected_pred > 0 else 0.0
             is_active = (item["model_name"] == selected_model_key)
             compare_rows.append({
-                "Model": f"⭐ {item['display_name']} (Active)" if is_active else item["display_name"],
-                "Predicted Value": round(m_pred, 2),
-                "Difference vs Active": "Active Engine (0.0%)" if is_active else f"{pct_diff:+.1f}%",
+                col_model: f"⭐ {item['display_name']} (Active)" if is_active else item["display_name"],
+                col_predicted_value: round(m_pred, 2),
+                col_diff: t('active_engine_label') if is_active else f"{pct_diff:+.1f}%",
                 "R² Score": f"{item['metrics']['R2_Score']:.4f}" if item["metrics"].get("R2_Score") is not None else "N/A",
                 "RMSE": f"{item['metrics']['RMSE']:.4f}" if item["metrics"].get("RMSE") is not None else "N/A"
             })
@@ -1996,12 +1884,12 @@ with tabs[3]:
 
         fig_all_comp = px.bar(
             compare_df,
-            x='Model',
-            y='Predicted Value',
-            color='Model',
+            x=col_model,
+            y=col_predicted_value,
+            color=col_model,
             color_discrete_sequence=['#2563EB' if selected_model_key == k else '#94A3B8' for k in MODEL_OPTIONS_ORDER],
-            text='Predicted Value',
-            title="Model-Predicted Value Comparison"
+            text=col_predicted_value,
+            title=t('model_pred_comparison_title')
         )
         fig_all_comp.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
         fig_all_comp.update_layout(
@@ -2012,7 +1900,7 @@ with tabs[3]:
             showlegend=False,
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)',
-            yaxis=dict(showgrid=True, gridcolor=CHART_GRIDCOLOR, title='Predicted Value')
+            yaxis=dict(showgrid=True, gridcolor=CHART_GRIDCOLOR, title=col_predicted_value)
         )
         st.plotly_chart(fig_all_comp, use_container_width=True, theme="streamlit", config=PLOTLY_CONFIG)
 
@@ -2023,8 +1911,8 @@ with tabs[3]:
 
         st.markdown("---")
         st.markdown(
-            f'<p style="color: #4A5568; font-style: italic; font-size: 13px; margin-top: 12px;"><b>Note:</b> {t("disclaimer_text")}</p>',
+            f'<p style="color: #4A5568; font-style: italic; font-size: 13px; margin-top: 12px;"><b>{t("note_label")}</b> {t("disclaimer_text")}</p>',
             unsafe_allow_html=True
         )
     else:
-        st.warning("Insufficient data under selected filters to run simulator.")
+        st.warning(t('warn_insufficient_sim'))
