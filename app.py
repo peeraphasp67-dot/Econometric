@@ -4,91 +4,117 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import statsmodels.api as sm
-import os
-import json
-import requests
-import joblib
 
 # -----------------------------------------------------------------------------
 # 1. PAGE CONFIGURATION & ENTERPRISE DESIGN CSS
 # -----------------------------------------------------------------------------
+# Widget keys below are read from session_state here (before the widgets that
+# own them are instantiated further down) so the browser tab title can reflect
+# the active dataset on the very first rerun after a file is uploaded.
+FILE_UPLOAD_KEY = "pricelens_uploaded_file"
+USE_DEMO_KEY = "pricelens_use_demo"
+
+_prev_upload = st.session_state.get(FILE_UPLOAD_KEY)
+_prev_use_demo = st.session_state.get(USE_DEMO_KEY, True)
+if _prev_upload is not None and not _prev_use_demo:
+    _dynamic_page_title = f"PriceLens — {_prev_upload.name}"
+else:
+    _dynamic_page_title = "PriceLens — Demo Amazon Dataset"
+
 st.set_page_config(
-    page_title="When Does Green Matter? E-Commerce Demand Research Dashboard",
+    page_title=_dynamic_page_title,
     layout="wide"
 )
 
-# Custom CSS for Thai Typography, Sidebar Styling, Dropdown & High-Contrast Metrics
+# Custom CSS — "High-End SaaS Dashboard" design system (Electric Blue accent)
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
-    
-    /* 1. Global Typography & Thai Font Line-Height Fix */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+    /* 1. Global Typography */
     body, p, label, input, select, textarea, .stMarkdown {
-        font-family: 'Prompt', 'Sarabun', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
         line-height: 1.7 !important;
     }
-    
+
     h1, h2, h3, h4, h5, h6 {
-        font-family: 'Prompt', 'Sarabun', 'Inter', sans-serif !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
         line-height: 1.5 !important;
         padding-top: 4px !important;
         padding-bottom: 4px !important;
-        font-weight: 600 !important;
+        font-weight: 700 !important;
+        letter-spacing: -0.02em !important;
         overflow: visible !important;
+        color: #0F172A !important;
     }
-    
+
     .stMarkdown p, .stMarkdown span {
         line-height: 1.75 !important;
     }
-    
-    /* 2. Hide Stray Icon Text Glitches at Sidebar Top */
+
+    /* 2. Main Content Surface — light slate background for card contrast */
+    [data-testid="stAppViewContainer"] {
+        background-color: #F1F5F9 !important;
+    }
+    [data-testid="stHeader"] {
+        background-color: transparent !important;
+    }
+    .block-container {
+        padding-top: 2.5rem !important;
+        max-width: 1280px;
+    }
+
+    /* 3. Hide Stray Icon Text Glitches at Sidebar Top */
     [data-testid="stSidebarHeader"] button span {
         display: none !important;
     }
     [data-testid="stSidebar"] button[title*="collapse"] span {
         visibility: hidden !important;
     }
-    
-    /* 3. Enterprise Dark Slate Sidebar Base Styling */
+
+    /* 4. Dark Navy Sidebar (SaaS nav-rail) with Electric Blue accents */
     [data-testid="stSidebar"] {
         background-color: #0F172A !important;
     }
-    [data-testid="stSidebar"] h1, 
-    [data-testid="stSidebar"] h2, 
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
     [data-testid="stSidebar"] h3 {
         color: #FFFFFF !important;
-        font-weight: 600 !important;
+        font-weight: 700 !important;
     }
     [data-testid="stSidebar"] hr {
-        border-color: #334155 !important;
+        border-color: #1E293B !important;
     }
-    
-    /* 4. Force Readable White Text for Radio Buttons & Sidebar Labels */
+
+    /* 5. Force Readable White Text for Radio Buttons & Sidebar Labels */
     [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
     [data-testid="stSidebar"] [data-testid="stRadioButton"] label p,
     [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
         color: #FFFFFF !important;
         font-weight: 500 !important;
     }
-    
-    /* 5. Force Dark Text (#0F172A) on White Background for Selectbox (Dropdown) on Sidebar */
+
+    /* 6. Selectbox (Dropdown) on Sidebar */
     [data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] * {
         color: #0F172A !important;
         font-weight: 500 !important;
     }
     [data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
         background-color: #FFFFFF !important;
-        border: 1px solid #CBD5E1 !important;
-        border-radius: 6px !important;
+        border: 1px solid #334155 !important;
+        border-radius: 10px !important;
     }
-    
+    [data-testid="stSidebar"] [data-testid="stCheckbox"] label p {
+        color: #E2E8F0 !important;
+    }
+
     /* Dropdown Popover Menu */
     div[data-baseweb="popover"] div[role="listbox"],
     div[data-baseweb="popover"] ul {
         background-color: #FFFFFF !important;
-        border: 1px solid #CBD5E1 !important;
-        border-radius: 6px !important;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1) !important;
+        border: 1px solid #E2E8F0 !important;
+        border-radius: 10px !important;
+        box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 8px 24px rgba(15,23,42,.10) !important;
     }
     div[data-baseweb="popover"] li,
     div[data-baseweb="popover"] [role="option"],
@@ -100,54 +126,130 @@ st.markdown("""
     div[data-baseweb="popover"] li:hover,
     div[data-baseweb="popover"] [role="option"]:hover,
     div[data-baseweb="popover"] [role="option"]:hover * {
-        background-color: #F1F5F9 !important;
-        color: #0D9488 !important;
+        background-color: #EFF6FF !important;
+        color: #2563EB !important;
         font-weight: 600 !important;
     }
-    
-    /* 6. Enterprise Styled Metric Cards & High-Contrast Text */
+
+    /* 7. Dashed Drop-Zone File Uploader (sidebar) — selector repeated to win
+       specificity battles against Streamlit's own built-in dropzone border */
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"][data-testid="stFileUploaderDropzone"] {
+        background-color: #1E293B !important;
+        border-width: 2px !important;
+        border-style: dashed !important;
+        border-color: #3B82F6 !important;
+        border-radius: 16px !important;
+        padding: 22px 16px !important;
+        transition: all 0.2s ease-in-out !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"][data-testid="stFileUploaderDropzone"]:hover {
+        background-color: #24324a !important;
+        border-color: #60A5FA !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] svg {
+        fill: #60A5FA !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] span,
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] small,
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] div {
+        color: #E2E8F0 !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button {
+        background-color: #2563EB !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stFileUploaderFile"] {
+        background-color: #1E293B !important;
+        border: 1px solid #334155 !important;
+        border-radius: 10px !important;
+        color: #E2E8F0 !important;
+    }
+
+    /* Schema teaching card (empty state) */
+    .schema-card {
+        background-color: #1E293B;
+        border: 1px solid #334155;
+        border-radius: 14px;
+        padding: 14px 16px;
+        margin-top: 12px;
+        margin-bottom: 4px;
+    }
+    .schema-card .schema-title {
+        color: #60A5FA;
+        font-weight: 700;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 8px;
+    }
+    .schema-card ul {
+        margin: 0;
+        padding-left: 18px;
+    }
+    .schema-card li {
+        color: #CBD5E1;
+        font-size: 0.82rem;
+        line-height: 1.6;
+    }
+    .schema-card li b {
+        color: #F8FAFC;
+    }
+
+    /* 8. Flat KPI Metric Cards + Top Accent Bar (no shadow) */
     [data-testid="stMetric"] {
         background-color: #FFFFFF !important;
         border: 1px solid #E2E8F0 !important;
-        border-radius: 8px !important;
-        padding: 16px 20px !important;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
-        transition: all 0.2s ease-in-out !important;
+        border-top: 4px solid #2563EB !important;
+        border-radius: 16px !important;
+        padding: 20px 22px !important;
+        box-shadow: none !important;
+        transition: border-color 0.2s ease-in-out !important;
     }
-    [data-testid="stMetric"]:hover {
-        border-color: #CBD5E1 !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08) !important;
+    [data-testid="stColumn"]:nth-of-type(2) [data-testid="stMetric"] {
+        border-top-color: #7C3AED !important;
+    }
+    [data-testid="stColumn"]:nth-of-type(3) [data-testid="stMetric"] {
+        border-top-color: #D97706 !important;
+    }
+    [data-testid="stColumn"]:nth-of-type(4) [data-testid="stMetric"] {
+        border-top-color: #059669 !important;
     }
     [data-testid="stMetricLabel"] {
-        font-size: 0.85rem !important;
-        font-weight: 600 !important;
-        color: #475569 !important;
+        font-size: 0.8rem !important;
+        font-weight: 700 !important;
+        color: #64748B !important;
         text-transform: uppercase !important;
-        letter-spacing: 0.04em !important;
+        letter-spacing: 0.05em !important;
     }
     [data-testid="stMetricValue"] {
-        font-size: 1.55rem !important;
-        font-weight: 700 !important;
+        font-size: 1.65rem !important;
+        font-weight: 800 !important;
         color: #0F172A !important;
+        letter-spacing: -0.02em !important;
     }
-    
-    /* Vivid Green for Delta / Subtext */
+
+    /* Blue for Delta / Subtext (was green) */
     [data-testid="stMetricDelta"],
     [data-testid="stMetricDelta"] *,
     [data-testid="stMetricDelta"] div,
     [data-testid="stMetricDelta"] span {
         font-weight: 700 !important;
-        color: #16A34A !important;
+        color: #2563EB !important;
     }
     [data-testid="stMetricDelta"] svg {
-        fill: #16A34A !important;
-        color: #16A34A !important;
+        fill: #2563EB !important;
+        color: #2563EB !important;
     }
 
     @media (prefers-color-scheme: dark) {
         [data-testid="stMetric"] {
             background-color: #1E293B !important;
-            border-color: #334155 !important;
+            border-left-color: #334155 !important;
+            border-right-color: #334155 !important;
+            border-bottom-color: #334155 !important;
         }
         [data-testid="stMetricValue"] {
             color: #F8FAFC !important;
@@ -159,59 +261,97 @@ st.markdown("""
         [data-testid="stMetricDelta"] *,
         [data-testid="stMetricDelta"] div,
         [data-testid="stMetricDelta"] span {
-            color: #4ADE80 !important;
+            color: #60A5FA !important;
         }
         [data-testid="stMetricDelta"] svg {
-            fill: #4ADE80 !important;
-            color: #4ADE80 !important;
+            fill: #60A5FA !important;
+            color: #60A5FA !important;
         }
     }
 
-    .stCaption, 
-    [data-testid="stCaptionContainer"], 
-    [data-testid="stCaptionContainer"] p, 
+    .stCaption,
+    [data-testid="stCaptionContainer"],
+    [data-testid="stCaptionContainer"] p,
     .stCaption p {
-        color: #334155 !important;
+        color: #475569 !important;
         font-weight: 500 !important;
         font-size: 0.9rem !important;
     }
 
-    /* Clean Tab Styling */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        border-bottom: 2px solid #E2E8F0;
+    /* 9. Segmented Control Tab Navigation (ARIA-role selectors — stable across
+       Streamlit/BaseWeb versions, unlike data-baseweb attributes) */
+    .stTabs [role="tablist"] {
+        gap: 4px;
+        background-color: #E2E8F0;
+        border-bottom: none !important;
+        border-radius: 14px;
+        padding: 5px;
+        width: fit-content;
     }
-    .stTabs [data-baseweb="tab"] {
-        padding: 10px 18px;
-        font-weight: 500;
-        border-radius: 6px 6px 0 0;
+    .stTabs [role="tab"] {
+        padding: 10px 20px;
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: #475569 !important;
+        border-radius: 10px !important;
+        background-color: transparent;
+        transition: all 0.15s ease-in-out;
+    }
+    .stTabs [role="tab"] p {
+        color: inherit !important;
+        font-weight: 600 !important;
+    }
+    .stTabs [role="tab"]:hover {
+        color: #2563EB !important;
+    }
+    .stTabs [role="tab"][aria-selected="true"] {
+        background-color: #FFFFFF !important;
+        color: #2563EB !important;
+        box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 4px 10px rgba(15,23,42,.08) !important;
+    }
+    .stTabs [data-baseweb="tab-highlight"],
+    .stTabs [data-baseweb="tab-border"] {
+        display: none !important;
     }
 
     /* Callout Card Boxes */
     .hypothesis-card {
-        background-color: #F8FAFC;
-        border-left: 4px solid #0D9488;
-        padding: 14px 18px;
-        border-radius: 4px;
+        background-color: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-left: 4px solid #2563EB;
+        padding: 16px 20px;
+        border-radius: 12px;
         margin-bottom: 12px;
+        box-shadow: 0 1px 2px rgba(15,23,42,.03);
     }
     .elm-card {
         background-color: #FFFFFF;
         border: 1px solid #E2E8F0;
-        border-radius: 8px;
-        padding: 16px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        border-radius: 16px;
+        padding: 18px;
+        box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 8px 24px rgba(15,23,42,.05);
     }
     .engine-badge {
         display: inline-block;
-        background-color: #F0FDFA;
-        color: #0F766E;
-        border: 1px solid #99F6E4;
-        padding: 6px 14px;
-        border-radius: 20px;
+        background-color: #EFF6FF;
+        color: #1D4ED8;
+        border: 1px solid #BFDBFE;
+        padding: 7px 16px;
+        border-radius: 999px;
         font-weight: 600;
         font-size: 0.9rem;
         margin-bottom: 14px;
+    }
+    .data-source-badge {
+        display: inline-block;
+        background-color: #F5F3FF;
+        color: #6D28D9;
+        border: 1px solid #DDD6FE;
+        padding: 7px 16px;
+        border-radius: 999px;
+        font-weight: 600;
+        font-size: 0.85rem;
+        margin-bottom: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -219,16 +359,40 @@ st.markdown("""
 # -----------------------------------------------------------------------------
 # 2. BILINGUAL TRANSLATION DICTIONARY
 # -----------------------------------------------------------------------------
-TRANSLATIONS = {
-    "EN": {
-        "page_title": "When Does Green Matter? Boundary Conditions & Heterogeneity in E-Commerce Demand",
-        "header_title": "When Does Green Matter? Boundary Conditions & Heterogeneity in E-Commerce Demand",
+STRINGS = {
         "header_subtitle": "Empirical Analysis using Propensity Score Matching (PSM), Moderated Regressions, and SHAP Explainable AI",
         "sidebar_title": "Control Panel & Filters",
-        "lang_selector": "Language / ภาษา",
         "cat_filter": "Product Category",
         "all_cats": "All Categories",
         "price_filter": "Price Range ($)",
+        # Data source / upload
+        "data_source_title": "Dataset Source",
+        "use_demo_toggle": "Use Demo Dataset",
+        "upload_label": "Upload your own dataset (.csv / .xlsx)",
+        "upload_help": "Upload a tabular file, then map its columns below to the roles required by the analysis pipeline.",
+        "mapping_title": "Column Mapping",
+        "mapping_help": "Match your file's columns to the variable roles used by the analysis engine.",
+        "map_target": "Target Variable (Sales Volume / Revenue) *",
+        "map_treatment": "Treatment Variable (Eco-Badge / Certification) *",
+        "map_price": "Price Variable *",
+        "map_reviews": "Social Proof / Reviews Variable",
+        "map_rating": "Rating Variable",
+        "map_coupon": "Promo / Coupon Variable",
+        "map_sponsored": "Sponsored / Ad Variable",
+        "map_category": "Category Variable (for filtering)",
+        "map_none": "— None —",
+        "map_treated_values": "Select value(s) representing the TREATED group",
+        "map_positive_values": "Select value(s) representing an ACTIVE / YES state",
+        "err_missing_required": "Required column mapping is incomplete. Please map: Target, Treatment, and Price before the pipeline can run.",
+        "err_no_treated_values": "Please select at least one value that represents the treated group for the Treatment Variable.",
+        "err_dtype": "Column '{col}' mapped to {role} could not be converted to a numeric type ({n_bad} invalid values found). Please choose a numeric column.",
+        "err_empty_after_clean": "After cleaning, no valid rows remain. Please check your file and column mapping.",
+        "warn_optional_missing": "Optional variable '{role}' was not mapped — a neutral default will be used, and any analysis relying on it may be less informative.",
+        "warn_negative_values": "Column '{col}' contains negative values; they were clipped to 0 before log-transformation.",
+        "warn_small_sample_generic": "⚠️ Sample size is small (N={n}). Downstream statistical results may be unstable.",
+        "warn_psm_fallback": "⚠️ Sample too small / imbalanced for reliable 1:1 Propensity Score Matching. Falling back to the full (unmatched) sample.",
+        "download_regression_csv": "⬇️ Download Regression Results (CSV)",
+        "download_compare_csv": "⬇️ Download Model Comparison (CSV)",
         # Model selection badges
         "badge_parametric": "📌 Displaying Parametric Econometric Specification: {model_name}",
         "badge_nonparametric": "📌 Displaying Non-Parametric Machine Learning Metrics: {model_name}",
@@ -237,9 +401,10 @@ TRANSLATIONS = {
         "linear_shap_note": "ℹ️ Linear Model Selected: Linear models (OLS / Ridge) have constant marginal feature effects (beta coefficients). Decision boundaries are linear across price ranges. Select Random Forest or XGBoost in the sidebar to inspect non-linear tree decision boundaries and SHAP curves.",
         # Executive Summary Metrics
         "metric_total_products": "TOTAL PRODUCTS ANALYSED",
-        "metric_green_share": "GREEN SCARCITY SHARE",
+        "metric_green_share": "TREATMENT (GREEN) SHARE",
         "metric_psm_sample": "PSM MATCHED SAMPLE",
         "metric_critical_boundary": "CRITICAL PRICE BOUNDARY",
+        "critical_boundary_na": "N/A",
         # Tabs
         "tab_overview": "Overview & Green Scarcity",
         "tab_model": "Model Analysis & Specification",
@@ -247,24 +412,26 @@ TRANSLATIONS = {
         "tab_simulator": "Interactive Scenario & Pricing Simulator",
         # Tab 1: Overview
         "exec_summary": "Executive Summary & Key Empirical Anchors",
-        "overview_chart_title": "Median Monthly Sales Volume by Sustainability Tag",
-        "overview_chart_subtitle": "Comparing median monthly sales across genuine environmental sustainability certifications",
+        "overview_chart_title": "Median Target by Treatment Group",
+        "overview_chart_subtitle": "Comparing median target values across treatment categories",
         "scale_toggle": "Axis Scaling Mode",
         "scale_linear": "Linear Scale",
         "scale_log": "Logarithmic Scale (Recommended for Outliers)",
-        "outlier_filter_toggle": "Exclude low-sample tags (<10 products)",
-        "x_axis_median_sales": "Median Monthly Units Purchased",
-        "y_axis_tag": "Sustainability Tag",
-        "no_tag_data": "No tag data available for the current filter selection.",
+        "outlier_filter_toggle": "Exclude low-sample groups (<10 products)",
+        "x_axis_median_sales": "Median Target Value",
+        "y_axis_tag": "Treatment Group",
+        "no_tag_data": "No group data available for the current filter selection.",
         "psm_balance_title": "Propensity Score Matching (PSM) Covariate Balance",
-        "psm_balance_subtitle": "Selection bias correction: Raw MASD ~0.38 reduced to Matched MASD < 0.02 across key confounders",
-        "psm_info_box": "<b>Selection Bias Correction via PSM:</b> In observational e-commerce data, eco-label adoption is confounded by seller scale and product popularity. Using 1:1 Nearest-Neighbor Propensity Score Matching (N=1,596; 798 Pairs), green products are matched with non-green control products of identical price, rating, review scale, and ad status—reducing Mean Absolute Standardized Difference (MASD) below the 0.05 threshold.",
+        "psm_balance_subtitle": "Selection bias correction: standardized differences before vs. after matching, computed on the active dataset",
+        "psm_info_box": "<b>Selection Bias Correction via PSM:</b> In observational data, treatment adoption is often confounded by other product characteristics. Using 1:1 Nearest-Neighbor Propensity Score Matching (N={n_matched:,}; {n_pairs:,} Pairs), treated products are matched with control products of similar price, rating, review scale, and promo status — reducing Mean Absolute Standardized Difference (MASD).",
+        "psm_unmatched_info_box": "<b>PSM Not Applied:</b> The active sample did not have enough treated/control observations for reliable 1:1 matching, so the covariate balance chart below reflects the raw (unmatched) sample only.",
+        "table_download": "⬇️ Download Group Summary (CSV)",
         # Tab 2: Model
         "model_sample_selector": "Select Econometric Sample Specification:",
-        "sample_full": "Full Sample (N=29,624)",
-        "sample_psm": "PSM Matched Sample (N=1,596)",
+        "sample_full": "Full Sample (N={n:,})",
+        "sample_psm": "PSM Matched Sample (N={n:,})",
         "model_title": "Model Specification Analysis ({model_name})",
-        "dep_var_label": "**Dependent Variable:** $\\ln(\\text{Purchased Last Month} + 1)$",
+        "dep_var_label": "**Dependent Variable:** $\\ln(\\text{{{target_label}}} + 1)$",
         "col_group": "Variable Group",
         "col_variable": "Variable / Predictor",
         "col_coef": "Coefficient (β)",
@@ -278,58 +445,59 @@ TRANSLATIONS = {
         "metric_f_stat": "F-statistic",
         "metric_n_obs": "Observations (N)",
         "metric_residual_var": "Residual Variance (σ²)",
-        "group_green_badges": "🌿 Eco-Badge & Moderation Interactions",
+        "group_green_badges": "🌿 Treatment & Moderation Interactions",
         "group_seller_controls": "🏷️ Seller/Functional Controls",
         "group_model_controls": "📊 Market & Product Controls",
         "h1_title": "H1: Price Elasticity Moderation",
-        "h1_desc": "Positive coefficient on <code>Eco-Badge × Log(Price)</code> (β = +0.447, p < 0.001) confirms that eco-labeling dampens price elasticity, buffering premium products against price sensitivity.",
+        "h1_desc": "{sign_word} coefficient on <code>{treat_label} × Log({price_label})</code> (β = {beta:+.3f}, {p_str}) {verb} that {treat_label} {effect_word} price elasticity.",
         "h2_title": "H2: Social Proof Substitution Effect",
-        "h2_desc": "Positive interaction on <code>Eco-Badge × Log(Reviews)</code> (β = +0.223, p < 0.001) indicates that eco-badges act as an effective alternative credibility signal for products with lower review volume.",
+        "h2_desc": "{sign_word} interaction on <code>{treat_label} × Log({reviews_label})</code> (β = {beta:+.3f}, {p_str}) {verb} that the treatment {effect_word2} act as an alternative credibility signal for products with lower review volume.",
         "h3_title": "H3: Promotional Synergy",
-        "h3_desc": "Interaction on <code>Eco-Badge × Coupon</code> tests promotional synergy between financial discounts and altruistic green signaling.",
+        "h3_desc": "Interaction on <code>{treat_label} × {coupon_label}</code> (β = {beta:+.3f}, {p_str}) tests promotional synergy between discounts and the treatment signal.",
         # Tab 3: SHAP
         "shap_title": "SHAP Explainable AI & Non-Linear Boundary Analysis",
         "shap_subtitle": "Uncovering Non-Linear Decision Boundaries via Elaboration Likelihood Model (ELM)",
         "shap_summary_title": "Global Feature Importance ({model_name})",
-        "shap_summary_desc": "Impact of features on predicted log monthly sales volume",
-        "shap_dep_title": "Non-Linear Decision Boundary: Critical Price Threshold ($85 – $100)",
-        "shap_dep_subtitle": "Eco-Badge Marginal Utility (SHAP Value) vs Product Price ($)",
+        "shap_summary_desc": "Impact of features on predicted log target value",
+        "shap_dep_title": "Non-Linear Decision Boundary: Critical Price Threshold ({lo} – {hi})",
+        "shap_dep_subtitle": "Treatment Marginal Utility (SHAP Value) vs {price_label}",
         "elm_card_title": "Elaboration Likelihood Model (ELM) Theoretical Framework",
-        "elm_low_title": "System 1 / Peripheral Route (< $85)",
-        "elm_low_desc": "Low cognitive elaboration. Choice is driven by baseline price and fast shipping; eco-label marginal utility is low (~+0.08 SHAP).",
-        "elm_mid_title": "Critical Cognitive Boundary ($85 – $100)",
-        "elm_mid_desc": "Inflection threshold. Price level triggers Central Route processing; eco-label serves as psychological justification for high-ticket purchases.",
-        "elm_high_title": "System 2 / Central Route (> $100)",
-        "elm_high_desc": "High cognitive elaboration. Eco-badge provides substantial marginal utility (+0.38 to +0.52 SHAP boost), significantly dampening price sensitivity.",
+        "elm_low_title": "System 1 / Peripheral Route (< {lo})",
+        "elm_low_desc": "Low cognitive elaboration. Choice is driven by baseline price; treatment marginal utility is low (~{low_val:+.2f} SHAP).",
+        "elm_mid_title": "Critical Cognitive Boundary ({lo} – {hi})",
+        "elm_mid_desc": "Inflection threshold. Price level triggers Central Route processing; the treatment serves as psychological justification for high-ticket purchases.",
+        "elm_high_title": "System 2 / Central Route (> {hi})",
+        "elm_high_desc": "High cognitive elaboration. Treatment provides substantial marginal utility ({high_val:+.2f} SHAP), dampening price sensitivity.",
+        "shap_boundary_unavailable": "Not enough price variation in the active sample to estimate a stable decision boundary.",
         # Tab 4: Simulator
         "sim_title": "Interactive Scenario & Pricing Simulator",
-        "sim_desc": "Simulate model-predicted monthly sales based on product attributes and observe elasticity moderation and social proof substitution effects.",
+        "sim_desc": "Simulate model-predicted target values based on product attributes and observe elasticity moderation and social proof substitution effects.",
         "sim_price_label": "Target Price ($)",
-        "sim_rating_label": "Target Rating (1.0 - 5.0)",
+        "sim_rating_label": "Target Rating",
         "sim_reviews_label": "Expected Total Reviews",
         "sim_sponsored_label": "Run Sponsored Ad Campaign?",
         "sim_coupon_label": "Offer Discount Coupon?",
-        "sim_tag_label": "Select Eco-Badge (Sustainability Tag)",
-        "sim_none_tag": "None (Standard Product)",
+        "sim_tag_label": "Select Treatment (Treated Group)",
+        "sim_none_tag": "None (Control / Standard Product)",
         "sim_result_header": "Model-Predicted Association Results",
-        "sim_standard_product": "Standard Product (No Badge)",
-        "sim_green_product": "Eco-Tagged Product",
+        "sim_standard_product": "Control Product (No Treatment)",
+        "sim_green_product": "Treated Product",
         "sim_conditional_diff": "Conditional Difference (%)",
-        "sim_units_unit": "units / month",
-        "sim_comparison_chart_title": "Model-Predicted Monthly Sales: Standard vs. Eco-Tagged",
-        "sim_standard_label": "Standard Product",
-        "sim_tagged_label": "Eco-Tagged Product",
-        "sim_select_tag_prompt": "Select an Eco-Badge above to see predicted conditional differences.",
+        "sim_units_unit": "units / period",
+        "sim_comparison_chart_title": "Model-Predicted Target: Control vs. Treated",
+        "sim_standard_label": "Control Product",
+        "sim_tagged_label": "Treated Product",
+        "sim_select_tag_prompt": "Select a Treatment value above to see predicted conditional differences.",
         "elasticity_title": "Moderated Price Elasticity Estimation",
-        "elasticity_standard": "Standard Elasticity: {eta_std:.2f}",
-        "elasticity_green": "Eco-Badge Elasticity: {eta_green:.2f}",
-        "elasticity_desc": "Eco-labeling dampens price elasticity from {eta_std:.2f} to {eta_green:.2f}, buffering sales penalties on high-ticket items.",
+        "elasticity_standard": "Control Elasticity: {eta_std:.2f}",
+        "elasticity_green": "Treated Elasticity: {eta_green:.2f}",
+        "elasticity_desc": "The treatment shifts price elasticity from {eta_std:.2f} to {eta_green:.2f}, buffering sales penalties on high-ticket items.",
         "substitution_title": "Social Proof Substitution Quantifier",
-        "substitution_desc": "At {reviews:,} reviews, Eco-Badge provides an equivalent credibility boost of **+{eq_reviews:,} reviews** (+{pct_lift:.1f}% sales lift).",
+        "substitution_desc": "At {reviews:,} reviews, the treatment provides an equivalent credibility boost of **+{eq_reviews:,} reviews** (+{pct_lift:.1f}% target lift).",
         "ci_label": "95% CI",
         "disclaimer_text": "Note: Results reflect observational associations derived from cross-sectional data, not guaranteed causal impacts.",
         "small_sample_warning": "⚠️ Warning: Sample size is too small (N={n} < 30). Statistical inferences and p-values may be uninterpretable.",
-        # Variable name mappings
+        # Variable name mappings (used only for the Demo dataset)
         "var_const": "Intercept (Const)",
         "var_is_green_binary": "Eco-Badge (Sustainability Tag)",
         "var_log_price": "Log(Discounted Price + 1)",
@@ -340,169 +508,64 @@ TRANSLATIONS = {
         "var_interaction_price_green": "Eco-Badge × Log(Price) [H1: Elasticity Moderation]",
         "var_interaction_reviews_green": "Eco-Badge × Log(Reviews) [H2: Social Proof Substitution]",
         "var_interaction_coupon_green": "Eco-Badge × Coupon [H3: Promotional Synergy]",
-        "var_tag_prefix": "Tag: "
-    },
-    "TH": {
-        "page_title": "When Does Green Matter? ปัจจัยเงื่อนไขและความต่างระดับของป้ายสีเขียวในอุปสงค์อีคอมเมิร์ซ",
-        "header_title": "When Does Green Matter? Boundary Conditions & Heterogeneity in E-Commerce Demand",
-        "header_subtitle": "การวิเคราะห์เชิงประจักษ์ด้วย Propensity Score Matching (PSM), สมการถดถอยแบบ Moderated และ SHAP Explainable AI",
-        "sidebar_title": "แผงควบคุมและตัวกรอง",
-        "lang_selector": "เลือกภาษา / Language",
-        "cat_filter": "หมวดหมู่สินค้า",
-        "all_cats": "หมวดหมู่ทั้งหมด",
-        "price_filter": "ช่วงราคา ($)",
-        # Model selection badges
-        "badge_parametric": "📌 กำลังแสดงผลข้อกำหนดแบบจำลองเศรษฐมิติประเภทพารามิเตอร์: {model_name}",
-        "badge_nonparametric": "📌 กำลังแสดงผลตัววัดการเรียนรู้ของเครื่องประเภทนอนพารามิเตอร์: {model_name}",
-        "badge_shap_engine": "📌 แบบจำลองวิเคราะห์ SHAP ปัจจุบัน: {model_name}",
-        "badge_sim_engine": "⚡ เครื่องมือพยากรณ์ปัจจุบัน: {model_name}",
-        "linear_shap_note": "ℹ️ เลือกแบบจำลองพารามิเตอร์เชิงเส้น: โมเดล OLS / Ridge มีผลกระทบส่วนเพิ่มคงที่ (สัมประสิทธิ์ Beta) ขอบเขตการตัดสินใจจะเป็นเส้นตรงตลอดช่วงราคา เลือก Random Forest หรือ XGBoost ในแถบด้านข้างเพื่อดูขอบเขตการตัดสินใจแบบนอนพารามิเตอร์และเส้นโค้ง SHAP",
-        # Executive Summary Metrics
-        "metric_total_products": "จำนวนสินค้าทั้งหมดที่วิเคราะห์",
-        "metric_green_share": "สัดส่วนป้ายความยั่งยืน (GREEN SCARCITY)",
-        "metric_psm_sample": "กลุ่มตัวอย่าง PSM (PSM MATCHED SAMPLE)",
-        "metric_critical_boundary": "จุดแบ่งราคาช่วงวิกฤต (CRITICAL PRICE BOUNDARY)",
-        # Tabs
-        "tab_overview": "ภาพรวมและป้ายสีเขียว (Green Scarcity)",
-        "tab_model": "การวิเคราะห์แบบจำลองและการกำหนดสมการ",
-        "tab_shap": "การวิเคราะห์ SHAP และจุดแบ่งราคา (Decision Boundary)",
-        "tab_simulator": "เครื่องมือจำลองฉากทัศน์และกลยุทธ์ราคา",
-        # Tab 1: Overview
-        "exec_summary": "สรุปภาพรวมสำหรับผู้บริหารและกรอบงานวิจัย",
-        "overview_chart_title": "มัธยฐานยอดขายต่อเดือนแยกตามป้ายความยั่งยืนทางสิ่งแวดล้อม",
-        "overview_chart_subtitle": "เปรียบเทียบมัธยฐานยอดขายรายเดือนเฉพาะป้ายรับรองความยั่งยืนทางสิ่งแวดล้อมที่แท้จริง",
-        "scale_toggle": "โหมดสเกลแกนยอดขาย",
-        "scale_linear": "สเกลเชิงเส้น (Linear)",
-        "scale_log": "สเกลลอการิทึม (Log Scale)",
-        "outlier_filter_toggle": "กรองป้ายที่มีตัวอย่างน้อยออก (<10 สินค้า)",
-        "x_axis_median_sales": "มัธยฐานจำนวนหน่วยที่ขายได้ต่อเดือน",
-        "y_axis_tag": "ป้ายกำกับความยั่งยืนทางสิ่งแวดล้อม",
-        "no_tag_data": "ไม่มีข้อมูลป้ายความยั่งยืนสำหรับเงื่อนไขตัวกรองนี้",
-        "psm_balance_title": "ความสมดุลของตัวแปรด้วย Propensity Score Matching (PSM)",
-        "psm_balance_subtitle": "การขจัดอคติจากการเลือกตัวอย่าง: ลดค่าเฉลี่ยผลต่างมาตรฐาน (MASD ~0.38) เหลือ Matched MASD < 0.02",
-        "psm_info_box": "<b>การขจัด Selection Bias ด้วย PSM:</b> ข้อมูลอีคอมเมิร์ซแบบสังเกตการณ์ มักมีความเอนเอียงเนื่องจากร้านค้าขนาดใหญ่มีแนวโน้มติดป้ายสีเขียวมากกว่า การใช้ 1:1 Nearest-Neighbor PSM (N=1,596; 798 คู่) ช่วยจับคู่สินค้าป้ายสีเขียวกับสินค้าทั่วไปที่มีราคา คะแนนรีวิว จำนวนรีวิว และการโฆษณาเท่ากัน ส่งผลให้ค่า MASD ลดลงต่ำกว่าเกณฑ์ 0.05",
-        # Tab 2: Model
-        "model_sample_selector": "เลือกกลุ่มตัวอย่างสำหรับสมการถดถอย:",
-        "sample_full": "กลุ่มตัวอย่างทั้งหมด (Full Sample, N=29,624)",
-        "sample_psm": "กลุ่มตัวอย่างจับคู่ PSM (PSM Matched, N=1,596)",
-        "model_title": "การวิเคราะห์แบบจำลอง ({model_name})",
-        "dep_var_label": "**ตัวแปรตาม (Dependent Variable):** $\\ln(\\text{Purchased Last Month} + 1)$",
-        "col_group": "กลุ่มตัวแปร",
-        "col_variable": "ตัวแปรพยากรณ์",
-        "col_coef": "สัมประสิทธิ์ (β)",
-        "col_std_err": "ความคลาดเคลื่อนมาตรฐาน (Std Error)",
-        "col_t_val": "ค่า t-statistic",
-        "col_p_val": "ค่า P-value",
-        "col_sig": "ระดับนัยสำคัญ",
-        "sig_legend": "**สัญลักษณ์นัยสำคัญทางสถิติ:** `***` p < 0.001 | `**` p < 0.01 | `*` p < 0.05 | `.` p < 0.1 | `ns` ไม่มีนัยสำคัญ",
-        "metric_r2": "R-squared",
-        "metric_adj_r2": "Adjusted R-squared",
-        "metric_f_stat": "F-statistic",
-        "metric_n_obs": "จำนวนตัวอย่าง (N)",
-        "metric_residual_var": "ความแปรปรวนของส่วนที่เหลือ (σ²)",
-        "group_green_badges": "🌿 ป้ายสีเขียวและตัวแปรปฏิสัมพันธ์ (Moderation)",
-        "group_seller_controls": "🏷️ ตัวแปรควบคุมด้านผู้ขาย/ฟังก์ชัน",
-        "group_model_controls": "📊 ตัวแปรควบคุมด้านตลาดและสินค้า",
-        "h1_title": "H1: การลดความไวต่อราคา (Elasticity Moderation)",
-        "h1_desc": "สัมประสิทธิ์ที่เป็นบวกอย่างมีนัยสำคัญของ <code>ป้ายสีเขียว × Log(ราคา)</code> (β = +0.447, p < 0.001) ยืนยันว่าป้ายความยั่งยืนช่วยลดความไวต่อราคา ช่วยป้องกันยอดขายตกลงเมื่อตั้งราคาสูง",
-        "h2_title": "H2: การทดแทนพิสูจน์ทางสังคม (Social Proof Substitution)",
-        "h2_desc": "ปฏิกิริยาร่วมระหว่าง <code>ป้ายสีเขียว × Log(จำนวนรีวิว)</code> ทำหน้าที่เป็นสัญญาณความน่าเชื่อถือทดแทนสำหรับสินค้าที่มีรีวิวน้อย",
-        "h3_title": "H3: การส่งเสริมการขายร่วม (Promotional Synergy)",
-        "h3_desc": "การมีปฏิสัมพันธ์ของ <code>ป้ายสีเขียว × คูปองส่วนลด</code> แสดงถึงผลส่งเสริมกันระหว่างคูปองส่วนลดทางเงินกับสัญญาณสีเขียว",
-        # Tab 3: SHAP
-        "shap_title": "การวิเคราะห์จุดแบ่งตัดสินใจด้วย SHAP Explainable AI",
-        "shap_subtitle": "ค้นหาจุดตัดสินใจไม่เป็นเชิงเส้นผ่านทฤษฎี Elaboration Likelihood Model (ELM)",
-        "shap_summary_title": "ความสำคัญของตัวแปรระดับโลก ({model_name})",
-        "shap_summary_desc": "อิทธิพลของตัวแปรพยากรณ์ต่อยอดขายลอการิทึมรายเดือน",
-        "shap_dep_title": "จุดตัดสินใจไม่เป็นเชิงเส้น: ช่วงราคาวิกฤต ($85 – $100)",
-        "shap_dep_subtitle": "ค่าอรรถประโยชน์ส่วนเพิ่มของป้ายสีเขียว (SHAP Value) เทียบกับราคาสินค้า ($)",
-        "elm_card_title": "กรอบทฤษฎี Elaboration Likelihood Model (ELM)",
-        "elm_low_title": "การประมวลผลทางลัด System 1 (< $85)",
-        "elm_low_desc": "การไตร่ตรองต่ำ ตัดสินใจจากราคาฐานและความเร็วส่งมอบ ป้ายสีเขียวมีอิทธิพลส่วนเพิ่มต่ำ (~+0.08 SHAP)",
-        "elm_mid_title": "จุดเปลี่ยนผ่านทางความคิด ($85 – $100)",
-        "elm_mid_desc": "ช่วงราคากระตุ้นการประมวลผลสายหลัก ป้ายสีเขียวช่วยสร้างเหตุผลสนับสนุนทางจิตวิทยาในการซื้อสินค้าราคาสูง",
-        "elm_high_title": "การประมวลผลไตร่ตรองสายหลัก System 2 (> $100)",
-        "elm_high_desc": "การประมวลผลสูง ป้ายสีเขียวมอบอรรถประโยชน์ส่วนเพิ่มสูงมาก (+0.38 ถึง +0.52 SHAP) ช่วยลดความไวต่อราคาอย่างเด่นชัด",
-        # Tab 4: Simulator
-        "sim_title": "เครื่องมือจำลองฉากทัศน์และกลยุทธ์ราคา",
-        "sim_desc": "จำลองยอดขายพยากรณ์ตามคุณลักษณะสินค้า พร้อมวิเคราะห์ผลกระทบการลดความไวต่อราคาและการทดแทนจำนวนรีวิว",
-        "sim_price_label": "ราคาเป้าหมาย ($)",
-        "sim_rating_label": "คะแนนรีวิวเป้าหมาย (1.0 - 5.0)",
-        "sim_reviews_label": "จำนวนรีวิวที่คาดหวัง",
-        "sim_sponsored_label": "ลงโฆษณา Sponsored?",
-        "sim_coupon_label": "มีคูปองส่วนลด?",
-        "sim_tag_label": "เลือกป้ายความยั่งยืน (Eco-Badge)",
-        "sim_none_tag": "ไม่มี (สินค้าทั่วไป)",
-        "sim_result_header": "ผลการพยากรณ์และวิเคราะห์ความสัมพันธ์",
-        "sim_standard_product": "สินค้าทั่วไป (ไม่มีป้าย)",
-        "sim_green_product": "สินค้าติดป้ายความยั่งยืน",
-        "sim_conditional_diff": "ผลต่างแบบมีเงื่อนไข (%)",
-        "sim_units_unit": "ชิ้น / เดือน",
-        "sim_comparison_chart_title": "ยอดขายพยากรณ์จากแบบจำลอง: สินค้าทั่วไป VS สินค้าติดป้าย",
-        "sim_standard_label": "สินค้าทั่วไป",
-        "sim_tagged_label": "สินค้าติดป้าย",
-        "sim_select_tag_prompt": "เลือกป้ายความยั่งยืนด้านบนเพื่อดูผลต่างแบบมีเงื่อนไขจากแบบจำลอง",
-        "elasticity_title": "การประมาณค่าความยืดหยุ่นต่อราคา (Moderated Price Elasticity)",
-        "elasticity_standard": "ความยืดหยุ่นสินค้าทั่วไป: {eta_std:.2f}",
-        "elasticity_green": "ความยืดหยุ่นสินค้ามีป้าย: {eta_green:.2f}",
-        "elasticity_desc": "ป้ายสีเขียวช่วยลดความไวต่อราคาจาก {eta_std:.2f} เหลือ {eta_green:.2f} เพิ่มอำนาจการตั้งราคาสูง",
-        "substitution_title": "การคำนวณการทดแทนพิสูจน์ทางสังคม (Social Proof Substitution)",
-        "substitution_desc": "ณ ระดับรีวิว {reviews:,} รายการ ป้ายสีเขียวให้ผลเพิ่มความน่าเชื่อถือเทียบเท่า **+{eq_reviews:,} รีวิว** (เพิ่มยอดขาย +{pct_lift:.1f}%)",
-        "ci_label": "ช่วงความเชื่อมั่น 95%",
-        "disclaimer_text": "หมายเหตุ: ผลลัพธ์สะท้อนความสัมพันธ์เชิงสังเกตการณ์จากข้อมูลภาคตัดขวาง มิใช่ผลกระทบเชิงสาเหตุที่การันตีได้",
-        "small_sample_warning": "⚠️ คำเตือน: ขนาดตัวอย่างน้อยเกินไป (N={n} < 30) การอนุมานทางสถิติและค่า p-value อาจไม่น่าเชื่อถือ",
-        # Variable name mappings
-        "var_const": "จุดตัดแกน (Const)",
-        "var_is_green_binary": "ป้ายความยั่งยืน (Eco-Badge)",
-        "var_log_price": "Log(ราคาลด + 1)",
-        "var_log_reviews": "Log(จำนวนรีวิว + 1)",
-        "var_product_rating": "คะแนนรีวิวสินค้า (1-5)",
-        "var_is_sponsored_binary": "โฆษณา Sponsored (Dummy)",
-        "var_has_coupon_binary": "มีคูปองส่วนลด (Dummy)",
-        "var_interaction_price_green": "ป้ายสีเขียว × Log(ราคา) [H1: การลดความไวต่อราคา]",
-        "var_interaction_reviews_green": "ป้ายสีเขียว × Log(จำนวนรีวิว) [H2: การทดแทนพิสูจน์ทางสังคม]",
-        "var_interaction_coupon_green": "ป้ายสีเขียว × คูปองส่วนลด [H3: การส่งเสริมการขายร่วม]",
-        "var_tag_prefix": "ป้าย: "
-    }
 }
 
-# -----------------------------------------------------------------------------
-# 3. SIDEBAR CONFIGURATION (LANGUAGE, FILTERS & DYNAMIC MODEL SELECTION)
-# -----------------------------------------------------------------------------
-st.sidebar.title("Language / ภาษา")
-lang_choice = st.sidebar.radio(
-    "Select Language / เลือกภาษา",
-    options=["ภาษาไทย", "English"],
-    index=0,
-    horizontal=True,
-    label_visibility="collapsed"
-)
-lang = "TH" if "ไทย" in lang_choice else "EN"
+
+GREEN_TAGS_DEFAULT = [
+    'Carbon impact',
+    'Energy efficiency',
+    'Manufacturing practices',
+    'Forestry practices',
+    'Recycled materials'
+]
+
+DEMO_MAPPING = {
+    "target": "purchased_last_month",
+    "treatment": "sustainability_tags",
+    "price": "discounted_price",
+    "reviews": "total_reviews",
+    "rating": "product_rating",
+    "coupon": "has_coupon",
+    "sponsored": "is_sponsored",
+    "category": "product_category",
+}
+
+MODEL_OPTIONS_ORDER = ["ols", "ridge", "rf", "xgboost"]
+MODEL_CLEAN_NAMES = {
+    "ols": "OLS Regression",
+    "ridge": "Ridge Regression",
+    "rf": "Random Forest Regressor",
+    "xgboost": "XGBoost Regressor"
+}
+
+X_VARS = [
+    'is_green_binary',
+    'log_price',
+    'interaction_price_green',
+    'log_reviews',
+    'interaction_reviews_green',
+    'has_coupon_binary',
+    'interaction_coupon_green',
+    'product_rating',
+    'is_sponsored_binary'
+]
+
+# Modern SaaS Interactive chart theme — Electric Blue colorway on light, card-like tooltips
+PLOTLY_FONT = dict(family="'Inter', sans-serif", size=12, color="#334155")
+PLOTLY_CONFIG = {
+    'displayModeBar': True,
+    'displaylogo': False,
+    'scrollZoom': True
+}
+CHART_COLORWAY = ["#2563EB", "#7C3AED", "#D97706", "#059669", "#DB2777", "#0891B2"]
+CHART_GRIDCOLOR = 'rgba(100,116,139,0.14)'
+CHART_HOVERLABEL = dict(bgcolor='#FFFFFF', bordercolor='#E2E8F0', font=dict(family="'Inter', sans-serif", size=12, color='#0F172A'))
+
 
 def t(key):
-    """Retrieve translated string for key based on active language."""
-    return TRANSLATIONS[lang].get(key, TRANSLATIONS["EN"].get(key, key))
+    """Retrieve a UI string by key."""
+    return STRINGS.get(key, key)
 
-def translate_var_name(var, lang_code="EN"):
-    """Convert code variable names into academic research standard labels."""
-    mapping = {
-        'const': t('var_const'),
-        'is_green_binary': t('var_is_green_binary'),
-        'log_price': t('var_log_price'),
-        'log_reviews': t('var_log_reviews'),
-        'product_rating': t('var_product_rating'),
-        'is_sponsored_binary': t('var_is_sponsored_binary'),
-        'has_coupon_binary': t('var_has_coupon_binary'),
-        'interaction_price_green': t('var_interaction_price_green'),
-        'interaction_reviews_green': t('var_interaction_reviews_green'),
-        'interaction_coupon_green': t('var_interaction_coupon_green'),
-    }
-    if var in mapping:
-        return mapping[var]
-    if var.startswith('tag_'):
-        tag_raw = var.replace('tag_', '')
-        return f"{t('var_tag_prefix')}{tag_raw}"
-    return var
 
 def get_sig_stars(p_val):
     """Return significance stars based on p-value threshold."""
@@ -517,106 +580,391 @@ def get_sig_stars(p_val):
     else:
         return "ns"
 
-# Clean Header
-st.title(t('header_title'))
-st.markdown(f'<p style="color: #333333; font-size: 1.05rem; font-weight: 500; margin-top: -10px; margin-bottom: 20px;">{t("header_subtitle")}</p>', unsafe_allow_html=True)
+
+def fmt_p(p_val):
+    if p_val is None or not np.isfinite(p_val):
+        return "p = N/A"
+    return "p < 0.001" if p_val < 0.001 else f"p = {p_val:.4f}"
+
 
 # -----------------------------------------------------------------------------
-# 4. DATA LOADING, PREPROCESSING & PSM MATCHING
+# 4. DATA SOURCE: DEMO DATASET OR USER UPLOAD
 # -----------------------------------------------------------------------------
-GREEN_TAGS = [
-    'Carbon impact',
-    'Energy efficiency',
-    'Manufacturing practices',
-    'Forestry practices',
-    'Recycled materials'
-]
-CONTROL_TAGS = ['Works with Alexa', 'Small Business']
-ALL_MODEL_TAGS = GREEN_TAGS + CONTROL_TAGS
+st.sidebar.title(t('data_source_title'))
+
+uploaded_file = st.sidebar.file_uploader(
+    t('upload_label'),
+    type=["csv", "xlsx"],
+    help=t('upload_help'),
+    key=FILE_UPLOAD_KEY
+)
+use_demo = st.sidebar.checkbox(t('use_demo_toggle'), value=(uploaded_file is None), key=USE_DEMO_KEY)
+
+# Empty-state schema teaching card — shown while the demo dataset is active,
+# so a new user knows exactly which column roles their own file should have.
+if use_demo or uploaded_file is None:
+    st.sidebar.markdown(
+        """
+        <div class="schema-card">
+            <div class="schema-title">Expected Column Schema</div>
+            <ul>
+                <li><b>Target</b> — Sales Volume / Revenue <i>(required)</i></li>
+                <li><b>Treatment</b> — Eco-Badge / Certification <i>(required)</i></li>
+                <li><b>Price</b> — Product Price <i>(required)</i></li>
+                <li><b>Reviews</b> — Social Proof / Review Count <i>(optional)</i></li>
+                <li><b>Rating</b> — Product Rating <i>(optional)</i></li>
+                <li><b>Coupon</b> — Promo / Discount Flag <i>(optional)</i></li>
+                <li><b>Sponsored</b> — Ad / Sponsored Flag <i>(optional)</i></li>
+                <li><b>Category</b> — Product Category <i>(optional)</i></li>
+            </ul>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 
 @st.cache_data
-def load_data():
-    df = pd.read_csv('data/amazon_products_sales_data_cleaned.csv')
-    df_clean = df.dropna(subset=['purchased_last_month', 'discounted_price', 'product_rating', 'total_reviews']).copy()
-    
-    # Binary indicator for genuine green sustainability tag
-    df_clean['is_green_binary'] = df_clean['sustainability_tags'].apply(
-        lambda x: 1 if any(tg in str(x) for tg in GREEN_TAGS) else 0
-    )
-    df_clean['has_sustainability_tag'] = df_clean['is_green_binary']
-    df_clean['is_sponsored_binary'] = (df_clean['is_sponsored'] == 'Sponsored').astype(int)
-    df_clean['has_coupon_binary'] = (df_clean['has_coupon'] != 'No Coupon').astype(int)
-    
-    df_clean['log_purchased'] = np.log1p(df_clean['purchased_last_month'])
-    df_clean['log_price'] = np.log1p(df_clean['discounted_price'])
-    df_clean['log_reviews'] = np.log1p(df_clean['total_reviews'])
-    
-    # Create dummy columns for each model tag
-    for tag in ALL_MODEL_TAGS:
-        df_clean[f'tag_{tag}'] = df_clean['sustainability_tags'].apply(
-            lambda x: 1 if str(tag) in str(x) else 0
+def load_demo_raw():
+    return pd.read_csv('data/amazon_products_sales_data_cleaned.csv')
+
+
+@st.cache_data
+def load_uploaded_raw(file_bytes, file_name):
+    import io
+    buf = io.BytesIO(file_bytes)
+    if file_name.lower().endswith(".xlsx"):
+        return pd.read_excel(buf)
+    return pd.read_csv(buf)
+
+
+is_demo_active = use_demo or uploaded_file is None
+raw_df = None
+data_source_error = None
+
+if is_demo_active:
+    try:
+        raw_df = load_demo_raw()
+    except Exception as e:
+        data_source_error = f"Unable to read demo data file: {e}"
+else:
+    try:
+        raw_df = load_uploaded_raw(uploaded_file.getvalue(), uploaded_file.name)
+    except Exception as e:
+        data_source_error = f"Unable to read uploaded file: {e}"
+
+if data_source_error:
+    st.error(data_source_error)
+    st.stop()
+if raw_df is None or len(raw_df) == 0:
+    st.error("The active dataset is empty.")
+    st.stop()
+
+# Dynamic branding: reflect the active dataset in the page title and header
+active_dataset_label = "Demo Amazon Dataset" if is_demo_active else uploaded_file.name
+
+st.title(f"PriceLens — {active_dataset_label}")
+st.markdown(f'<p style="color: #333333; font-size: 1.05rem; font-weight: 500; margin-top: -10px; margin-bottom: 20px;">{t("header_subtitle")}</p>', unsafe_allow_html=True)
+st.markdown(
+    f'<div class="data-source-badge">📊 Active Dataset: {active_dataset_label} (N={len(raw_df):,} rows)</div>',
+    unsafe_allow_html=True
+)
+
+# -----------------------------------------------------------------------------
+# 5. COLUMN MAPPING & VALIDATION
+# -----------------------------------------------------------------------------
+mapping = {}
+optional_missing_roles = []
+
+if is_demo_active:
+    mapping = dict(DEMO_MAPPING)
+    treated_values = list(GREEN_TAGS_DEFAULT)
+    coupon_positive_values = None   # numeric/text auto rule handled below (demo uses legacy rule)
+    sponsored_positive_values = None
+else:
+    st.sidebar.markdown("---")
+    st.sidebar.subheader(t('mapping_title'))
+    st.sidebar.caption(t('mapping_help'))
+
+    cols = list(raw_df.columns)
+    none_opt = t('map_none')
+
+    def col_picker(label, key, optional=False):
+        options = ([none_opt] if optional else []) + cols
+        return st.sidebar.selectbox(label, options, key=f"map_{key}")
+
+    mapping["target"] = col_picker(t('map_target'), "target")
+    mapping["treatment"] = col_picker(t('map_treatment'), "treatment")
+    mapping["price"] = col_picker(t('map_price'), "price")
+    mapping["reviews"] = col_picker(t('map_reviews'), "reviews", optional=True)
+    mapping["rating"] = col_picker(t('map_rating'), "rating", optional=True)
+    mapping["coupon"] = col_picker(t('map_coupon'), "coupon", optional=True)
+    mapping["sponsored"] = col_picker(t('map_sponsored'), "sponsored", optional=True)
+    mapping["category"] = col_picker(t('map_category'), "category", optional=True)
+
+    for role in ["reviews", "rating", "coupon", "sponsored", "category"]:
+        if mapping.get(role) == none_opt:
+            mapping[role] = None
+            optional_missing_roles.append(role)
+
+    treated_values = []
+    if mapping["treatment"]:
+        treat_series = raw_df[mapping["treatment"]]
+        if pd.api.types.is_bool_dtype(treat_series):
+            treated_values = [True]
+        elif pd.api.types.is_numeric_dtype(treat_series):
+            uniq_vals = sorted(treat_series.dropna().unique().tolist())
+            treated_values = st.sidebar.multiselect(t('map_treated_values'), uniq_vals, default=uniq_vals[-1:] if uniq_vals else [])
+        else:
+            uniq_vals = sorted(treat_series.dropna().astype(str).unique().tolist())[:200]
+            treated_values = st.sidebar.multiselect(t('map_treated_values'), uniq_vals)
+
+    coupon_positive_values = None
+    if mapping.get("coupon"):
+        s = raw_df[mapping["coupon"]]
+        if not (pd.api.types.is_bool_dtype(s) or (pd.api.types.is_numeric_dtype(s) and set(s.dropna().unique()).issubset({0, 1}))):
+            uniq_vals = sorted(s.dropna().astype(str).unique().tolist())[:200]
+            mode_val = s.astype(str).mode().iloc[0] if len(s.dropna()) else None
+            default_vals = [v for v in uniq_vals if v != mode_val]
+            coupon_positive_values = st.sidebar.multiselect(
+                f"{t('map_positive_values')} — {mapping['coupon']}", uniq_vals, default=default_vals, key="coupon_pos"
+            )
+
+    sponsored_positive_values = None
+    if mapping.get("sponsored"):
+        s = raw_df[mapping["sponsored"]]
+        if not (pd.api.types.is_bool_dtype(s) or (pd.api.types.is_numeric_dtype(s) and set(s.dropna().unique()).issubset({0, 1}))):
+            uniq_vals = sorted(s.dropna().astype(str).unique().tolist())[:200]
+            mode_val = s.astype(str).mode().iloc[0] if len(s.dropna()) else None
+            default_vals = [v for v in uniq_vals if v != mode_val]
+            sponsored_positive_values = st.sidebar.multiselect(
+                f"{t('map_positive_values')} — {mapping['sponsored']}", uniq_vals, default=default_vals, key="sponsored_pos"
+            )
+
+# Required-field validation
+required_ok = bool(mapping.get("target")) and bool(mapping.get("treatment")) and bool(mapping.get("price"))
+if not is_demo_active and not required_ok:
+    st.error(t('err_missing_required'))
+    st.stop()
+if not is_demo_active and len(treated_values) == 0:
+    st.error(t('err_no_treated_values'))
+    st.stop()
+
+for role in optional_missing_roles:
+    st.sidebar.warning(t('warn_optional_missing').format(role=role))
+
+# -----------------------------------------------------------------------------
+# 6. BUILD CANONICAL DATAFRAME (preprocessing, log-transforms, interactions)
+# -----------------------------------------------------------------------------
+
+
+def _binarize_generic(series, positive_values):
+    if pd.api.types.is_bool_dtype(series):
+        return series.fillna(False).astype(int)
+    if pd.api.types.is_numeric_dtype(series):
+        return (series.fillna(0) != 0).astype(int)
+    if positive_values:
+        return series.astype(str).apply(lambda x: 1 if x in positive_values else 0)
+    return pd.Series(0, index=series.index)
+
+
+@st.cache_data(show_spinner=False)
+def build_canonical_df(raw, mapping_dict, treated_vals, coupon_pos, sponsored_pos, is_demo):
+    warnings = []
+    df_clean = raw.copy()
+
+    # ---- Target ----
+    target_series = pd.to_numeric(df_clean[mapping_dict["target"]], errors="coerce")
+    n_bad_target = target_series.isna().sum() - df_clean[mapping_dict["target"]].isna().sum()
+
+    # ---- Price ----
+    price_series = pd.to_numeric(df_clean[mapping_dict["price"]], errors="coerce")
+    n_bad_price = price_series.isna().sum() - df_clean[mapping_dict["price"]].isna().sum()
+
+    dtype_errors = []
+    if n_bad_target > 0:
+        dtype_errors.append(("target", mapping_dict["target"], int(n_bad_target)))
+    if n_bad_price > 0:
+        dtype_errors.append(("price", mapping_dict["price"], int(n_bad_price)))
+
+    df_clean["purchased_last_month"] = target_series
+    df_clean["discounted_price"] = price_series
+
+    # ---- Treatment ----
+    treat_raw_col = df_clean[mapping_dict["treatment"]]
+    if is_demo:
+        df_clean["sustainability_tags"] = treat_raw_col
+        df_clean["is_green_binary"] = treat_raw_col.apply(
+            lambda x: 1 if any(tg in str(x) for tg in treated_vals) else 0
         )
-    
-    # Interaction terms for Hypotheses testing:
-    # H1: Price Elasticity Moderation
-    df_clean['interaction_price_green'] = df_clean['log_price'] * df_clean['is_green_binary']
-    # H2: Social Proof Substitution Effect
-    df_clean['interaction_reviews_green'] = df_clean['log_reviews'] * df_clean['is_green_binary']
-    # H3: Promotional Synergy
-    df_clean['interaction_coupon_green'] = df_clean['has_coupon_binary'] * df_clean['is_green_binary']
-    
-    # ----------------------------------------------------
-    # Generate 1:1 PSM Matched Sample (N=1,596; 798 Pairs)
-    # ----------------------------------------------------
+    else:
+        df_clean["sustainability_tags"] = treat_raw_col.astype(str)
+        if pd.api.types.is_bool_dtype(treat_raw_col) or pd.api.types.is_numeric_dtype(treat_raw_col):
+            df_clean["is_green_binary"] = treat_raw_col.apply(lambda x: 1 if x in treated_vals else 0)
+        else:
+            df_clean["is_green_binary"] = treat_raw_col.astype(str).apply(
+                lambda x: 1 if any(str(tv) in x for tv in treated_vals) else 0
+            )
+
+    # ---- Optional: reviews ----
+    if mapping_dict.get("reviews"):
+        reviews_series = pd.to_numeric(df_clean[mapping_dict["reviews"]], errors="coerce")
+        n_bad = reviews_series.isna().sum() - df_clean[mapping_dict["reviews"]].isna().sum()
+        if n_bad > 0:
+            dtype_errors.append(("reviews", mapping_dict["reviews"], int(n_bad)))
+        df_clean["total_reviews"] = reviews_series.fillna(0)
+    else:
+        df_clean["total_reviews"] = 0.0
+        warnings.append(("optional_missing", "Social Proof / Reviews"))
+
+    # ---- Optional: rating ----
+    if mapping_dict.get("rating"):
+        rating_series = pd.to_numeric(df_clean[mapping_dict["rating"]], errors="coerce")
+        n_bad = rating_series.isna().sum() - df_clean[mapping_dict["rating"]].isna().sum()
+        if n_bad > 0:
+            dtype_errors.append(("rating", mapping_dict["rating"], int(n_bad)))
+        fallback_rating = rating_series.mean() if rating_series.notna().any() else 4.0
+        df_clean["product_rating"] = rating_series.fillna(fallback_rating)
+    else:
+        df_clean["product_rating"] = 4.0
+        warnings.append(("optional_missing", "Rating"))
+
+    # ---- Optional: coupon ----
+    if mapping_dict.get("coupon"):
+        df_clean["has_coupon_binary"] = _binarize_generic(df_clean[mapping_dict["coupon"]], coupon_pos)
+    else:
+        df_clean["has_coupon_binary"] = 0
+        warnings.append(("optional_missing", "Promo / Coupon"))
+
+    # ---- Optional: sponsored ----
+    if mapping_dict.get("sponsored"):
+        df_clean["is_sponsored_binary"] = _binarize_generic(df_clean[mapping_dict["sponsored"]], sponsored_pos)
+    else:
+        df_clean["is_sponsored_binary"] = 0
+        warnings.append(("optional_missing", "Sponsored / Ad"))
+
+    # ---- Optional: category ----
+    if mapping_dict.get("category"):
+        df_clean["product_category"] = df_clean[mapping_dict["category"]].astype(str)
+    else:
+        df_clean["product_category"] = "All"
+
+    # ---- Drop rows with missing core numeric fields ----
+    df_clean = df_clean.dropna(subset=["purchased_last_month", "discounted_price"]).copy()
+
+    if len(df_clean) == 0:
+        return None, dtype_errors, warnings, 0, 0
+
+    # ---- Handle negative / zero values before log transform ----
+    neg_price = int((df_clean["discounted_price"] < 0).sum())
+    neg_target = int((df_clean["purchased_last_month"] < 0).sum())
+    df_clean["discounted_price"] = df_clean["discounted_price"].clip(lower=0)
+    df_clean["purchased_last_month"] = df_clean["purchased_last_month"].clip(lower=0)
+    df_clean["total_reviews"] = df_clean["total_reviews"].clip(lower=0)
+
+    # ---- Log transforms (log1p handles zeros/skewness) ----
+    df_clean["log_purchased"] = np.log1p(df_clean["purchased_last_month"])
+    df_clean["log_price"] = np.log1p(df_clean["discounted_price"])
+    df_clean["log_reviews"] = np.log1p(df_clean["total_reviews"])
+
+    # ---- Interaction terms (H1, H2, H3) ----
+    df_clean["interaction_price_green"] = df_clean["log_price"] * df_clean["is_green_binary"]
+    df_clean["interaction_reviews_green"] = df_clean["log_reviews"] * df_clean["is_green_binary"]
+    df_clean["interaction_coupon_green"] = df_clean["has_coupon_binary"] * df_clean["is_green_binary"]
+
+    return df_clean, dtype_errors, warnings, neg_price, neg_target
+
+
+canonical_result = build_canonical_df(
+    raw_df, mapping, tuple(treated_values),
+    tuple(coupon_positive_values) if coupon_positive_values else None,
+    tuple(sponsored_positive_values) if sponsored_positive_values else None,
+    is_demo_active
+)
+df_clean, dtype_errors, build_warnings, neg_price_n, neg_target_n = canonical_result
+
+if dtype_errors:
+    for role, col, n_bad in dtype_errors:
+        st.error(t('err_dtype').format(col=col, role=role, n_bad=n_bad))
+    st.stop()
+
+if df_clean is None or len(df_clean) == 0:
+    st.error(t('err_empty_after_clean'))
+    st.stop()
+
+if neg_price_n > 0 and not is_demo_active:
+    st.sidebar.warning(t('warn_negative_values').format(col=mapping.get("price")))
+if neg_target_n > 0 and not is_demo_active:
+    st.sidebar.warning(t('warn_negative_values').format(col=mapping.get("target")))
+
+if len(df_clean) < 30:
+    st.warning(t('warn_small_sample_generic').format(n=len(df_clean)))
+
+df = df_clean
+
+# -----------------------------------------------------------------------------
+# 7. PROPENSITY SCORE MATCHING (with fallback for small samples)
+# -----------------------------------------------------------------------------
+PSM_COVARIATES = ['log_price', 'log_reviews', 'product_rating', 'is_sponsored_binary', 'has_coupon_binary']
+
+
+@st.cache_data(show_spinner=False)
+def run_psm(df_in, covariates, data_key):
+    treated = df_in[df_in['is_green_binary'] == 1].copy()
+    control = df_in[df_in['is_green_binary'] == 0].copy()
+
+    min_group = min(len(treated), len(control))
+    if min_group < 5:
+        return df_in.copy(), False
+
     try:
         from sklearn.linear_model import LogisticRegression
         from sklearn.neighbors import NearestNeighbors
-        
-        covariates = ['log_price', 'log_reviews', 'product_rating', 'is_sponsored_binary', 'has_coupon_binary']
-        X_cov = df_clean[covariates]
-        ps_model = LogisticRegression(random_state=42).fit(X_cov, df_clean['is_green_binary'])
-        df_clean['pscore'] = ps_model.predict_proba(X_cov)[:, 1]
-        
-        treated = df_clean[df_clean['is_green_binary'] == 1].copy()
-        control = df_clean[df_clean['is_green_binary'] == 0].copy()
-        
-        if len(treated) > 798:
-            treated_sample = treated.sample(798, random_state=42)
-        else:
-            treated_sample = treated
-            
+
+        X_cov = df_in[covariates].fillna(0)
+        ps_model = LogisticRegression(random_state=42, max_iter=1000).fit(X_cov, df_in['is_green_binary'])
+        df_in = df_in.copy()
+        df_in['pscore'] = ps_model.predict_proba(X_cov)[:, 1]
+
+        treated = df_in[df_in['is_green_binary'] == 1].copy()
+        control = df_in[df_in['is_green_binary'] == 0].copy()
+
+        cap = min(len(treated), 5000)
+        treated_sample = treated.sample(cap, random_state=42) if len(treated) > cap else treated
+
         nn = NearestNeighbors(n_neighbors=1, algorithm='ball_tree')
         nn.fit(control[['pscore']])
         distances, indices = nn.kneighbors(treated_sample[['pscore']])
-        
+
         matched_control = control.iloc[indices.flatten()].copy()
         psm_df = pd.concat([treated_sample, matched_control]).reset_index(drop=True)
+        return psm_df, True
     except Exception:
-        # Robust Fallback
-        treated = df_clean[df_clean['is_green_binary'] == 1]
-        control = df_clean[df_clean['is_green_binary'] == 0].sample(min(len(treated), 798), random_state=42)
-        psm_df = pd.concat([treated, control]).reset_index(drop=True)
-        
-    return df_clean, psm_df
+        return df_in.copy(), False
 
-try:
-    df, psm_df = load_data()
-except Exception as e:
-    st.error(f"Unable to read data file: {e}")
-    st.info("Please verify that 'amazon_products_sales_data_cleaned.csv' is placed inside the 'data' folder.")
-    st.stop()
+
+with st.spinner("Running Propensity Score Matching..."):
+    _data_key = f"{len(df)}_{int(df['is_green_binary'].sum())}_{hash(tuple(df.columns))}"
+    psm_df, psm_matched = run_psm(df, PSM_COVARIATES, _data_key)
+
+if not psm_matched:
+    st.sidebar.warning(t('warn_psm_fallback'))
 
 # -----------------------------------------------------------------------------
-# 5. SIDEBAR FILTERS & DYNAMIC MODEL SELECTION
+# 8. SIDEBAR FILTERS & DYNAMIC MODEL SELECTION
 # -----------------------------------------------------------------------------
 st.sidebar.markdown("---")
 st.sidebar.title(t('sidebar_title'))
 
-categories = [t('all_cats')] + list(df['product_category'].dropna().unique())
-selected_category = st.sidebar.selectbox(t('cat_filter'), categories)
+if mapping.get("category") or is_demo_active:
+    categories = [t('all_cats')] + sorted(df['product_category'].dropna().unique().tolist())
+    selected_category = st.sidebar.selectbox(t('cat_filter'), categories)
+else:
+    selected_category = t('all_cats')
 
 min_p = float(df['discounted_price'].min())
-max_p = float(df['discounted_price'].quantile(0.98))
+max_p = float(df['discounted_price'].quantile(0.98)) if df['discounted_price'].nunique() > 1 else float(df['discounted_price'].max()) + 1.0
+if max_p <= min_p:
+    max_p = min_p + 1.0
 price_range = st.sidebar.slider(t('price_filter'), min_p, max_p, (min_p, max_p))
 
 filtered_df = df[(df['discounted_price'] >= price_range[0]) & (df['discounted_price'] <= price_range[1])].copy()
@@ -626,155 +974,215 @@ if selected_category != t('all_cats'):
     filtered_df = filtered_df[filtered_df['product_category'] == selected_category]
     filtered_psm_df = filtered_psm_df[filtered_psm_df['product_category'] == selected_category]
 
-# Dynamic Model Selection Dropdown (Binds Global State)
 st.sidebar.markdown("---")
-st.sidebar.subheader("Predictive Model / โมเดลพยากรณ์")
+st.sidebar.subheader("Predictive Model")
 
 model_options = {
-    "ols": "OLS Regression (แนะนำสำหรับการวิเคราะห์เชิงเศรษฐมิติ)" if lang == "TH" else "OLS Regression (Recommended for Econometrics)",
+    "ols": "OLS Regression (Recommended for Econometrics)",
     "ridge": "Ridge Regression",
     "rf": "Random Forest Regressor",
-    "xgboost": "XGBoost Regressor (ความแม่นยำสูง)" if lang == "TH" else "XGBoost Regressor (High Accuracy)"
-}
-
-model_clean_names = {
-    "ols": "OLS Regression",
-    "ridge": "Ridge Regression",
-    "rf": "Random Forest Regressor",
-    "xgboost": "XGBoost Regressor"
+    "xgboost": "XGBoost Regressor (High Accuracy)"
 }
 
 selected_model_key = st.sidebar.selectbox(
-    "Select Model Engine / เลือกโมเดลพยากรณ์" if lang == "EN" else "เลือกโมเดลพยากรณ์หลัก",
-    options=list(model_options.keys()),
+    "Select Model Engine",
+    options=MODEL_OPTIONS_ORDER,
     format_func=lambda x: model_options[x],
     key="active_model_engine"
 )
 
-active_model_display_name = model_clean_names[selected_model_key]
-
-# Shared Plotly Configuration
-PLOTLY_FONT = dict(family="'Prompt', 'Sarabun', 'Inter', sans-serif", size=12)
-PLOTLY_CONFIG = {
-    'displayModeBar': True,
-    'displaylogo': False,
-    'scrollZoom': True
-}
+active_model_display_name = MODEL_CLEAN_NAMES[selected_model_key]
 
 # -----------------------------------------------------------------------------
-# 6. LOCAL BACKEND UTILITIES
+# 9. DYNAMIC VARIABLE LABELS
 # -----------------------------------------------------------------------------
-@st.cache_resource
-def load_local_model(model_name):
-    """Loads a pre-trained ML model locally."""
-    model_filenames = {
-        "ols": "ols_model.joblib",
-        "ridge": "ridge_model.joblib",
-        "rf": "rf_model.joblib",
-        "xgboost": "xgb_model.joblib"
+if is_demo_active:
+    VAR_LABELS = {
+        'const': t('var_const'),
+        'is_green_binary': t('var_is_green_binary'),
+        'log_price': t('var_log_price'),
+        'log_reviews': t('var_log_reviews'),
+        'product_rating': t('var_product_rating'),
+        'is_sponsored_binary': t('var_is_sponsored_binary'),
+        'has_coupon_binary': t('var_has_coupon_binary'),
+        'interaction_price_green': t('var_interaction_price_green'),
+        'interaction_reviews_green': t('var_interaction_reviews_green'),
+        'interaction_coupon_green': t('var_interaction_coupon_green'),
     }
-    path = f"models/{model_filenames[model_name]}"
-    if os.path.exists(path):
-        try:
-            return joblib.load(path)
-        except Exception:
-            pass
-    return None
-
-@st.cache_data
-def get_local_metrics():
-    """Loads model performance metrics JSON locally."""
-    path = "models/metrics.json"
-    if os.path.exists(path):
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
-
-def get_model_prediction(model_name, price, is_green, rating, reviews_count):
-    """Executes prediction using the active model engine."""
-    local_metrics = get_local_metrics()
-    model_display_names = {
-        "ols": "OLS Regression",
-        "ridge": "Ridge Regression",
-        "rf": "Random Forest",
-        "xgboost": "XGBoost"
+    TARGET_LABEL = "Purchased Last Month"
+    TREAT_LABEL = t('var_is_green_binary')
+    PRICE_LABEL = "Discounted Price"
+    REVIEWS_LABEL = "Total Reviews"
+    COUPON_LABEL = "Coupon"
+else:
+    TARGET_LABEL = mapping["target"]
+    TREAT_LABEL = mapping["treatment"]
+    PRICE_LABEL = mapping["price"]
+    REVIEWS_LABEL = mapping.get("reviews") or "Reviews"
+    COUPON_LABEL = mapping.get("coupon") or "Coupon"
+    VAR_LABELS = {
+        'const': t('var_const'),
+        'is_green_binary': f"{TREAT_LABEL} (Treated)",
+        'log_price': f"Log({PRICE_LABEL} + 1)",
+        'log_reviews': f"Log({REVIEWS_LABEL} + 1)",
+        'product_rating': mapping.get("rating") or "Rating",
+        'is_sponsored_binary': mapping.get("sponsored") or "Sponsored",
+        'has_coupon_binary': COUPON_LABEL,
+        'interaction_price_green': f"{TREAT_LABEL} × Log({PRICE_LABEL}) [H1]",
+        'interaction_reviews_green': f"{TREAT_LABEL} × Log({REVIEWS_LABEL}) [H2]",
+        'interaction_coupon_green': f"{TREAT_LABEL} × {COUPON_LABEL} [H3]",
     }
-    m_info = local_metrics.get(model_display_names[model_name], {})
-    r2 = m_info.get("R2_Score")
-    rmse = m_info.get("RMSE")
-    
-    model = load_local_model(model_name)
-    if model is not None:
-        log_p = np.log1p(price)
-        log_rev = np.log1p(reviews_count)
-        log_p_x_g = log_p * is_green
-        
-        # Build features DataFrame matching model training schema
-        df_input = pd.DataFrame([{
-            'log_price': log_p,
-            'is_green': float(is_green),
-            'log_price_x_is_green': log_p_x_g,
-            'rating': float(rating),
-            'reviews_count': float(reviews_count)
-        }])
-        pred_log = model.predict(df_input)[0]
-        predicted_sales = float(max(0, np.expm1(pred_log)))
-    else:
-        # Analytical approximation fallback
-        beta_0 = 4.80
-        beta_p = -0.427
-        beta_p_g = 0.447
-        beta_g = -3.010
-        beta_rev = 0.196
-        beta_rat = 0.230
-        log_p = np.log1p(price)
-        log_rev = np.log1p(reviews_count)
-        pred_log = beta_0 + beta_p*log_p + beta_g*is_green + beta_p_g*log_p*is_green + beta_rev*log_rev + beta_rat*rating
-        predicted_sales = float(max(0, np.expm1(pred_log)))
-        
-    return predicted_sales, r2, rmse
 
-def get_compare_predictions(price, is_green, rating, reviews_count):
-    keys = ["ols", "ridge", "rf", "xgboost"]
-    display_names = {
-        "ols": "OLS Regression",
-        "ridge": "Ridge Regression",
-        "rf": "Random Forest",
-        "xgboost": "XGBoost"
-    }
-    results = []
-    for k in keys:
-        pred, r2, rmse = get_model_prediction(k, price, is_green, rating, reviews_count)
-        results.append({
-            "model_name": k,
-            "display_name": display_names[k],
-            "predicted_sales": pred,
-            "metrics": {
-                "R2_Score": r2,
-                "RMSE": rmse
-            }
-        })
-    return results
+
+def translate_var_name(var):
+    return VAR_LABELS.get(var, var)
+
 
 def get_var_group(var_name):
-    """Assign each variable to a conceptual group for OLS results table."""
     if var_name == 'const':
         return '—'
     if var_name in ['is_green_binary', 'interaction_price_green', 'interaction_reviews_green', 'interaction_coupon_green']:
         return t('group_green_badges')
-    if var_name.startswith('tag_'):
-        tag_raw = var_name.replace('tag_', '')
-        if tag_raw in GREEN_TAGS:
-            return t('group_green_badges')
-        if tag_raw in CONTROL_TAGS:
-            return t('group_seller_controls')
     return t('group_model_controls')
 
 # -----------------------------------------------------------------------------
-# 7. DASHBOARD TABS
+# 10. MODEL TRAINING (live, cached — replaces static pretrained artifacts)
+# -----------------------------------------------------------------------------
+
+
+def _df_hash(frame, cols):
+    try:
+        return int(pd.util.hash_pandas_object(frame[cols]).sum())
+    except Exception:
+        return len(frame)
+
+
+@st.cache_resource(show_spinner=False)
+def fit_ols(_X, _y, data_hash):
+    X_const = sm.add_constant(_X)
+    return sm.OLS(_y, X_const).fit()
+
+
+@st.cache_resource(show_spinner=False)
+def fit_ridge(_X, _y, data_hash):
+    from sklearn.linear_model import Ridge as SKRidge
+    model = SKRidge(alpha=1.0)
+    model.fit(_X, _y)
+    return model
+
+
+@st.cache_resource(show_spinner=False)
+def fit_tree_model(_X, _y, model_key, data_hash):
+    from sklearn.model_selection import train_test_split
+    X_train, X_test, y_train, y_test = train_test_split(_X, _y, test_size=0.20, random_state=42)
+    if model_key == "rf":
+        from sklearn.ensemble import RandomForestRegressor as SKRF
+        model = SKRF(n_estimators=150, random_state=42, n_jobs=-1)
+    else:
+        from xgboost import XGBRegressor as SKXGB
+        model = SKXGB(n_estimators=150, learning_rate=0.1, random_state=42, n_jobs=-1)
+    model.fit(X_train, y_train)
+    return model, X_train, X_test, y_train, y_test
+
+
+@st.cache_resource(show_spinner=False)
+def get_headline_ols(_X, _y, data_hash):
+    """A stable OLS fit on the active sample used to power dynamic hypothesis text,
+    regardless of which engine (OLS/Ridge/RF/XGBoost) is selected for display."""
+    X_const = sm.add_constant(_X)
+    return sm.OLS(_y, X_const).fit()
+
+
+def predict_scenario(model_key, active_data, price, is_green, rating, reviews_count, coupon=0, sponsored=0):
+    """Predict the target using the model trained on the current active sample."""
+    X = active_data[X_VARS]
+    y = active_data['log_purchased']
+    data_hash = _df_hash(active_data, X_VARS + ['log_purchased'])
+
+    log_p = np.log1p(price)
+    log_rev = np.log1p(reviews_count)
+    row = pd.DataFrame([{
+        'is_green_binary': float(is_green),
+        'log_price': log_p,
+        'interaction_price_green': log_p * is_green,
+        'log_reviews': log_rev,
+        'interaction_reviews_green': log_rev * is_green,
+        'has_coupon_binary': float(coupon),
+        'interaction_coupon_green': float(coupon) * is_green,
+        'product_rating': float(rating),
+        'is_sponsored_binary': float(sponsored),
+    }])[X_VARS]
+
+    if model_key == "ols":
+        model_fit = fit_ols(X, y, data_hash)
+        pred_log = model_fit.predict(sm.add_constant(row, has_constant='add'))[0]
+        rmse = np.sqrt(model_fit.mse_resid)
+        r2 = model_fit.rsquared
+    elif model_key == "ridge":
+        model_fit = fit_ridge(X, y, data_hash)
+        pred_log = model_fit.predict(row)[0]
+        y_pred_all = model_fit.predict(X)
+        rmse = float(np.sqrt(np.mean((y - y_pred_all) ** 2)))
+        from sklearn.metrics import r2_score
+        r2 = float(r2_score(y, y_pred_all))
+    else:
+        model_fit, X_train, X_test, y_train, y_test = fit_tree_model(X, y, model_key, data_hash)
+        pred_log = model_fit.predict(row)[0]
+        from sklearn.metrics import r2_score, mean_squared_error
+        y_test_pred = model_fit.predict(X_test)
+        rmse = float(np.sqrt(mean_squared_error(y_test, y_test_pred)))
+        r2 = float(r2_score(y_test, y_test_pred))
+
+    predicted = float(max(0, np.expm1(pred_log)))
+    return predicted, r2, rmse
+
+
+def get_compare_predictions(active_data, price, is_green, rating, reviews_count, coupon=0, sponsored=0):
+    results = []
+    for k in MODEL_OPTIONS_ORDER:
+        pred, r2, rmse = predict_scenario(k, active_data, price, is_green, rating, reviews_count, coupon, sponsored)
+        results.append({
+            "model_name": k,
+            "display_name": MODEL_CLEAN_NAMES[k],
+            "predicted_sales": pred,
+            "metrics": {"R2_Score": r2, "RMSE": rmse}
+        })
+    return results
+
+
+# ---- Headline OLS stats (used for dynamic hypothesis text & Tab1 crossover metric) ----
+_headline_X = filtered_df[X_VARS]
+_headline_y = filtered_df['log_purchased']
+_headline_hash = _df_hash(filtered_df, X_VARS + ['log_purchased'])
+headline_stats = None
+if len(filtered_df) > len(X_VARS) + 2:
+    try:
+        headline_stats = get_headline_ols(_headline_X, _headline_y, _headline_hash)
+    except Exception:
+        headline_stats = None
+
+
+def compute_crossover_price(stats):
+    """Price at which the treatment's net log-sales contribution flips from negative to positive."""
+    if stats is None:
+        return None
+    try:
+        beta_g = stats.params.get('is_green_binary')
+        beta_pg = stats.params.get('interaction_price_green')
+        if beta_g is None or beta_pg is None or beta_pg == 0:
+            return None
+        crossover = np.expm1(-beta_g / beta_pg)
+        if crossover <= 0 or not np.isfinite(crossover):
+            return None
+        return float(crossover)
+    except Exception:
+        return None
+
+
+crossover_price = compute_crossover_price(headline_stats)
+
+# -----------------------------------------------------------------------------
+# 11. DASHBOARD TABS
 # -----------------------------------------------------------------------------
 tabs = st.tabs([
     t('tab_overview'),
@@ -788,61 +1196,72 @@ tabs = st.tabs([
 # =============================================================================
 with tabs[0]:
     st.subheader(t('exec_summary'))
-    
+
     col1, col2, col3, col4 = st.columns(4)
-    
+
     tot_n = len(filtered_df)
     green_count = int(filtered_df['is_green_binary'].sum())
-    green_pct = (green_count / tot_n * 100) if tot_n > 0 else 2.7
-    
-    col1.metric(t('metric_total_products'), f"{tot_n:,}" if tot_n > 0 else "29,624")
-    col2.metric(t('metric_green_share'), f"{green_count:,} ({green_pct:.1f}%)" if tot_n > 0 else "798 (2.7%)")
-    col3.metric(t('metric_psm_sample'), "1,596 (798 Pairs)")
-    col4.metric(t('metric_critical_boundary'), "$85 - $100")
-    
+    green_pct = (green_count / tot_n * 100) if tot_n > 0 else 0.0
+
+    col1.metric(t('metric_total_products'), f"{tot_n:,}")
+    col2.metric(t('metric_green_share'), f"{green_count:,} ({green_pct:.1f}%)")
+    n_pairs = len(filtered_psm_df) // 2 if psm_matched else 0
+    col3.metric(t('metric_psm_sample'), f"{len(filtered_psm_df):,} ({n_pairs:,} Pairs)" if psm_matched else f"{len(filtered_psm_df):,} (Unmatched)")
+    if crossover_price is not None and min_p <= crossover_price <= max_p:
+        col4.metric(t('metric_critical_boundary'), f"${crossover_price:,.0f}")
+    else:
+        col4.metric(t('metric_critical_boundary'), t('critical_boundary_na'))
+
     st.markdown("---")
     st.subheader(t('overview_chart_title'))
     st.markdown(f'<p style="color: #4A5568; font-size: 14px; font-weight: 500; margin-top: -6px; margin-bottom: 14px;">{t("overview_chart_subtitle")}</p>', unsafe_allow_html=True)
-    
+
     ctrl_col1, ctrl_col2 = st.columns([1, 1])
     with ctrl_col1:
         exclude_outliers = st.checkbox(t('outlier_filter_toggle'), value=True)
     with ctrl_col2:
         use_log_scale = st.checkbox(t('scale_log'), value=False)
-        
-    tag_data = filtered_df[filtered_df['sustainability_tags'].isin(GREEN_TAGS)].copy()
-    
+
+    multi_group_mode = len(treated_values) > 1
+    if multi_group_mode:
+        tag_data = filtered_df[filtered_df['sustainability_tags'].apply(lambda x: any(str(tv) in str(x) for tv in treated_values))].copy()
+        group_col = 'sustainability_tags'
+    else:
+        tag_data = filtered_df.copy()
+        tag_data['group_label'] = tag_data['is_green_binary'].map({1: t('sim_green_product'), 0: t('sim_standard_product')})
+        group_col = 'group_label'
+
     if len(tag_data) > 0:
-        tag_sales = tag_data.groupby('sustainability_tags').agg(
+        tag_sales = tag_data.groupby(group_col).agg(
             median_sales=('purchased_last_month', 'median'),
             product_count=('purchased_last_month', 'count')
-        ).reset_index()
-        
+        ).reset_index().rename(columns={group_col: 'sustainability_tags'})
+
         if exclude_outliers:
             tag_sales_filtered = tag_sales[tag_sales['product_count'] >= 10]
             if len(tag_sales_filtered) > 0:
                 tag_sales = tag_sales_filtered
-                
+
         tag_sales = tag_sales.sort_values(by='median_sales', ascending=True).tail(10).copy()
-        
+
         tag_sales['tag_display'] = tag_sales.apply(
             lambda r: f"⚠️ {r['sustainability_tags']} (N={r['product_count']:,})"
             if r['product_count'] < 30
             else f"{r['sustainability_tags']} (N={r['product_count']:,})",
             axis=1
         )
-        
+
         if use_log_scale:
             tag_sales['plot_sales'] = np.maximum(1.0, tag_sales['median_sales'])
         else:
             tag_sales['plot_sales'] = tag_sales['median_sales']
-            
+
         fig_bar = px.bar(
             tag_sales,
             x='plot_sales',
             y='tag_display',
             orientation='h',
-            color_discrete_sequence=['#0D9488'],
+            color_discrete_sequence=['#2563EB'],
             log_x=use_log_scale,
             text='median_sales',
             labels={
@@ -853,53 +1272,87 @@ with tabs[0]:
         fig_bar.update_traces(
             texttemplate='%{text:,.0f}',
             textposition='auto',
-            marker_line_color='#0F766E',
+            marker_line_color='#1D4ED8',
             marker_line_width=1,
-            hovertemplate='<b>%{y}</b><br>Median Monthly Sales: %{text:,.0f} units<extra></extra>'
+            hovertemplate='<b>%{y}</b><br>Median: %{text:,.0f}<extra></extra>'
         )
         fig_bar.update_layout(
             height=400,
             font=PLOTLY_FONT,
+            hoverlabel=CHART_HOVERLABEL,
+            colorway=CHART_COLORWAY,
             showlegend=False,
             margin=dict(l=10, r=40, t=20, b=10),
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)',
-            xaxis=dict(showgrid=True, gridcolor='rgba(148,163,184,0.2)'),
+            xaxis=dict(showgrid=True, gridcolor=CHART_GRIDCOLOR),
             yaxis=dict(showgrid=False)
         )
         st.plotly_chart(fig_bar, use_container_width=True, theme="streamlit", config=PLOTLY_CONFIG)
+
+        csv_bytes = tag_sales[['sustainability_tags', 'median_sales', 'product_count']].to_csv(index=False).encode('utf-8')
+        st.download_button(t('table_download'), data=csv_bytes, file_name="group_summary.csv", mime="text/csv")
     else:
         st.info(t('no_tag_data'))
-        
+
     st.markdown("---")
     # PSM Covariate Balance Section
     st.subheader(t('psm_balance_title'))
     st.markdown(f'<p style="color: #4A5568; font-size: 14px; font-weight: 500; margin-top: -6px; margin-bottom: 14px;">{t("psm_balance_subtitle")}</p>', unsafe_allow_html=True)
-    
-    st.markdown(f'<div class="hypothesis-card">{t("psm_info_box")}</div>', unsafe_allow_html=True)
-    
-    # Paired Covariate Balance MASD Data
-    masd_data = pd.DataFrame({
-        'Covariate': ['Log(Price)', 'Log(Reviews)', 'Product Rating', 'Sponsored Ad', 'Has Coupon'],
-        'Raw Sample MASD': [0.385, 0.342, 0.210, 0.175, 0.158],
-        'PSM Matched MASD': [0.014, 0.012, 0.009, 0.005, 0.008]
-    })
-    
+
+    if psm_matched:
+        st.markdown(
+            f'<div class="hypothesis-card">{t("psm_info_box").format(n_matched=len(filtered_psm_df), n_pairs=n_pairs)}</div>',
+            unsafe_allow_html=True
+        )
+    else:
+        st.markdown(f'<div class="hypothesis-card">{t("psm_unmatched_info_box")}</div>', unsafe_allow_html=True)
+
+    def standardized_diff(a, b):
+        a = a.dropna()
+        b = b.dropna()
+        if len(a) == 0 or len(b) == 0:
+            return 0.0
+        pooled_std = np.sqrt((a.var() + b.var()) / 2)
+        if pooled_std == 0 or not np.isfinite(pooled_std):
+            return 0.0
+        return abs((a.mean() - b.mean()) / pooled_std)
+
+    covariate_labels = {
+        'log_price': translate_var_name('log_price'),
+        'log_reviews': translate_var_name('log_reviews'),
+        'product_rating': translate_var_name('product_rating'),
+        'is_sponsored_binary': translate_var_name('is_sponsored_binary'),
+        'has_coupon_binary': translate_var_name('has_coupon_binary'),
+    }
+
+    raw_treated = filtered_df[filtered_df['is_green_binary'] == 1]
+    raw_control = filtered_df[filtered_df['is_green_binary'] == 0]
+    matched_treated = filtered_psm_df[filtered_psm_df['is_green_binary'] == 1]
+    matched_control = filtered_psm_df[filtered_psm_df['is_green_binary'] == 0]
+
+    masd_rows = []
+    for covar, label in covariate_labels.items():
+        raw_masd = standardized_diff(raw_treated[covar], raw_control[covar])
+        matched_masd = standardized_diff(matched_treated[covar], matched_control[covar]) if psm_matched else raw_masd
+        masd_rows.append({'Covariate': label, 'Raw Sample MASD': raw_masd, 'PSM Matched MASD': matched_masd})
+    masd_data = pd.DataFrame(masd_rows)
+
     fig_masd = go.Figure()
     fig_masd.add_trace(go.Bar(
         x=masd_data['Covariate'],
         y=masd_data['Raw Sample MASD'],
-        name='Raw Unmatched Sample (N=29,624)',
+        name=f'Raw Sample (N={len(filtered_df):,})',
         marker_color='#EF4444'
     ))
-    fig_masd.add_trace(go.Bar(
-        x=masd_data['Covariate'],
-        y=masd_data['PSM Matched MASD'],
-        name='PSM Matched Sample (N=1,596)',
-        marker_color='#10B981'
-    ))
-    
-    # Threshold Line at 0.05
+    if psm_matched:
+        fig_masd.add_trace(go.Bar(
+            x=masd_data['Covariate'],
+            y=masd_data['PSM Matched MASD'],
+            name=f'PSM Matched Sample (N={len(filtered_psm_df):,})',
+            marker_color='#10B981'
+        ))
+
     fig_masd.add_hline(
         y=0.05,
         line_dash="dash",
@@ -907,14 +1360,16 @@ with tabs[0]:
         annotation_text="Covariate Balance Threshold (MASD = 0.05)",
         annotation_position="top right"
     )
-    
+
     fig_masd.update_layout(
         height=380,
         font=PLOTLY_FONT,
+            hoverlabel=CHART_HOVERLABEL,
+            colorway=CHART_COLORWAY,
         barmode='group',
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        yaxis=dict(title='Mean Absolute Standardized Difference (MASD)', showgrid=True, gridcolor='rgba(148,163,184,0.2)'),
+        yaxis=dict(title='Mean Absolute Standardized Difference (MASD)', showgrid=True, gridcolor=CHART_GRIDCOLOR),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     st.plotly_chart(fig_masd, use_container_width=True, theme="streamlit", config=PLOTLY_CONFIG)
@@ -924,53 +1379,43 @@ with tabs[0]:
 # --- TAB 2: MODERATED ECONOMETRIC & MODEL SPECIFICATION ---
 # =============================================================================
 with tabs[1]:
-    # Active Model Badge
     if selected_model_key in ["ols", "ridge"]:
         badge_html = f'<div class="engine-badge">{t("badge_parametric").format(model_name=active_model_display_name)}</div>'
     else:
-        badge_html = f'<div class="engine-badge" style="background-color:#EFF6FF; color:#1E40AF; border-color:#BFDBFE;">{t("badge_nonparametric").format(model_name=active_model_display_name)}</div>'
+        badge_html = f'<div class="engine-badge" style="background-color:#FFFBEB; color:#B45309; border-color:#FDE68A;">{t("badge_nonparametric").format(model_name=active_model_display_name)}</div>'
     st.markdown(badge_html, unsafe_allow_html=True)
-    
-    # Econometric Sample Selector
+
     sample_choice = st.radio(
         t('model_sample_selector'),
-        options=[t('sample_full'), t('sample_psm')],
+        options=[t('sample_full').format(n=len(filtered_df)), t('sample_psm').format(n=len(filtered_psm_df))],
         horizontal=True
     )
-    
-    active_df = filtered_psm_df if t('sample_psm') in sample_choice else filtered_df
-    
-    if len(active_df) > 10:
+
+    active_df = filtered_psm_df if "PSM" in sample_choice else filtered_df
+
+    if len(active_df) > len(X_VARS) + 2:
         st.subheader(t('model_title').format(model_name=active_model_display_name))
-        
-        X_vars = [
-            'is_green_binary',
-            'log_price',
-            'interaction_price_green',
-            'log_reviews',
-            'interaction_reviews_green',
-            'has_coupon_binary',
-            'interaction_coupon_green',
-            'product_rating',
-            'is_sponsored_binary'
-        ]
-        
-        # ----------------------------------------------------
-        # BRANCH A: Parametric Regression Models (OLS / Ridge)
-        # ----------------------------------------------------
+
+        X = active_df[X_VARS]
+        y = active_df['log_purchased']
+        data_hash = _df_hash(active_df, X_VARS + ['log_purchased'])
+
+        if len(active_df) < 30:
+            st.warning(t('small_sample_warning').format(n=len(active_df)))
+
+        display_df = None
+        results_df = None
+
         if selected_model_key in ["ols", "ridge"]:
-            st.markdown(t('dep_var_label'))
-            
-            X = active_df[X_vars]
-            y = active_df['log_purchased']
-            
+            st.markdown(t('dep_var_label').format(target_label=TARGET_LABEL))
+
             if selected_model_key == "ols":
-                X_const = sm.add_constant(X)
-                model_fit = sm.OLS(y, X_const).fit()
-                
-                var_display_list = [translate_var_name(v, lang) for v in model_fit.params.index]
+                with st.spinner("Fitting OLS model..."):
+                    model_fit = fit_ols(X, y, data_hash)
+
+                var_display_list = [translate_var_name(v) for v in model_fit.params.index]
                 groups_list = [get_var_group(v) for v in model_fit.params.index]
-                
+
                 results_df = pd.DataFrame({
                     '_orig_var': list(model_fit.params.index),
                     '_p_val_raw': model_fit.pvalues.values,
@@ -982,10 +1427,10 @@ with tabs[1]:
                     t('col_p_val'): model_fit.pvalues.values,
                     t('col_sig'): [get_sig_stars(p) for p in model_fit.pvalues.values]
                 })
-                
+
                 display_df = results_df[[t('col_group'), t('col_variable'), t('col_coef'),
                                         t('col_std_err'), t('col_t_val'), t('col_p_val'), t('col_sig')]].copy()
-                
+
                 display_df[t('col_coef')] = results_df.apply(
                     lambda r: f"{r[t('col_coef')]:.4f} {r[t('col_sig')]}", axis=1
                 )
@@ -995,12 +1440,12 @@ with tabs[1]:
                     lambda r: "< 0.001" if r['_p_val_raw'] < 0.001 else f"{r['_p_val_raw']:.4f}",
                     axis=1
                 )
-                
+
                 def highlight_sig_rows(row):
                     idx = row.name
                     p_val = results_df.loc[idx, '_p_val_raw']
                     if p_val < 0.05:
-                        return ['background-color: rgba(13, 148, 136, 0.12); font-weight: 500;'] * len(row)
+                        return ['background-color: rgba(37, 99, 235, 0.08); font-weight: 500;'] * len(row)
                     return [''] * len(row)
 
                 st.dataframe(
@@ -1009,146 +1454,182 @@ with tabs[1]:
                     hide_index=True
                 )
                 st.markdown(t('sig_legend'))
-                
+
                 m_col1, m_col2, m_col3, m_col4, m_col5 = st.columns(5)
                 m_col1.metric(t('metric_r2'), f"{model_fit.rsquared:.4f}")
                 m_col2.metric(t('metric_adj_r2'), f"{model_fit.rsquared_adj:.4f}")
                 m_col3.metric(t('metric_f_stat'), f"{model_fit.fvalue:.2f}")
                 m_col4.metric(t('metric_n_obs'), f"{int(model_fit.nobs):,}")
                 m_col5.metric(t('metric_residual_var'), f"{model_fit.mse_resid:.4f}")
-                
-            else: # Ridge Regression
-                from sklearn.linear_model import Ridge as SKRidge
+
+            else:  # Ridge Regression
                 from sklearn.metrics import r2_score as sk_r2
-                
-                ridge_sk = SKRidge(alpha=1.0)
-                ridge_sk.fit(X, y)
-                
-                var_names = ['const'] + X_vars
+
+                with st.spinner("Fitting Ridge model..."):
+                    ridge_sk = fit_ridge(X, y, data_hash)
+
+                var_names = ['const'] + X_VARS
                 coefs = [ridge_sk.intercept_] + list(ridge_sk.coef_)
-                
+
                 results_df = pd.DataFrame({
                     '_orig_var': var_names,
                     t('col_group'): [get_var_group(v) for v in var_names],
-                    t('col_variable'): [translate_var_name(v, lang) for v in var_names],
+                    t('col_variable'): [translate_var_name(v) for v in var_names],
                     t('col_coef'): coefs,
                     t('col_std_err'): "N/A (Regularized)",
                     t('col_t_val'): "N/A",
                     t('col_p_val'): "—",
                     t('col_sig'): "ns"
                 })
-                
+
                 display_df = results_df[[t('col_group'), t('col_variable'), t('col_coef'),
                                         t('col_std_err'), t('col_t_val'), t('col_p_val'), t('col_sig')]].copy()
                 display_df[t('col_coef')] = results_df[t('col_coef')].apply(lambda x: f"{x:.4f}")
-                
+
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
                 st.info("ℹ️ Ridge regression is a regularized L2 estimator (alpha=1.0). Standard errors and P-values are regularized to prevent collinearity bias.")
-                
+
                 y_pred = ridge_sk.predict(X)
                 r2_val = sk_r2(y, y_pred)
                 n_obs = len(y)
                 p_vars = X.shape[1]
-                adj_r2_val = 1 - (1 - r2_val) * (n_obs - 1) / (n_obs - p_vars - 1)
+                adj_r2_val = 1 - (1 - r2_val) * (n_obs - 1) / (n_obs - p_vars - 1) if n_obs - p_vars - 1 > 0 else float('nan')
                 mse_resid = np.mean((y - y_pred) ** 2)
-                
+
                 m_col1, m_col2, m_col3, m_col4, m_col5 = st.columns(5)
                 m_col1.metric(t('metric_r2'), f"{r2_val:.4f}")
                 m_col2.metric(t('metric_adj_r2'), f"{adj_r2_val:.4f}")
                 m_col3.metric(t('metric_f_stat'), "N/A (L2 Penalty)")
                 m_col4.metric(t('metric_n_obs'), f"{n_obs:,}")
                 m_col5.metric(t('metric_residual_var'), f"{mse_resid:.4f}")
-                
-            # Hypotheses Callout Blocks
+
+            if display_df is not None:
+                csv_bytes = display_df.to_csv(index=False).encode('utf-8')
+                st.download_button(t('download_regression_csv'), data=csv_bytes, file_name=f"regression_results_{selected_model_key}.csv", mime="text/csv")
+
+            # ---- Dynamic Hypotheses Callout Blocks (driven by headline OLS stats) ----
             st.markdown("---")
             h_col1, h_col2, h_col3 = st.columns(3)
+
+            if headline_stats is not None:
+                params = headline_stats.params
+                pvalues = headline_stats.pvalues
+
+                beta_h1 = params.get('interaction_price_green', 0.0)
+                p_h1 = pvalues.get('interaction_price_green', 1.0)
+                beta_h2 = params.get('interaction_reviews_green', 0.0)
+                p_h2 = pvalues.get('interaction_reviews_green', 1.0)
+                beta_h3 = params.get('interaction_coupon_green', 0.0)
+                p_h3 = pvalues.get('interaction_coupon_green', 1.0)
+
+                wb = {
+                    "pos": "Positive", "neg": "Negative",
+                    "confirm_yes": "confirms", "confirm_no": "does not clearly confirm",
+                    "dampens": "dampens", "amplifies": "amplifies",
+                    "indicate_yes": "indicates", "indicate_no": "does not clearly indicate",
+                    "may": "may", "does": "does",
+                }
+
+                sign_word = wb["pos"] if beta_h1 >= 0 else wb["neg"]
+                verb = wb["confirm_yes"] if p_h1 < 0.05 else wb["confirm_no"]
+                effect_word = wb["dampens"] if beta_h1 >= 0 else wb["amplifies"]
+                h1_text = t('h1_desc').format(
+                    sign_word=sign_word, treat_label=TREAT_LABEL, price_label=PRICE_LABEL,
+                    beta=beta_h1, p_str=fmt_p(p_h1), verb=verb, effect_word=effect_word
+                )
+
+                sign_word2 = wb["pos"] if beta_h2 >= 0 else wb["neg"]
+                verb2 = wb["indicate_yes"] if p_h2 < 0.05 else wb["indicate_no"]
+                effect_word2 = wb["may"] if p_h2 >= 0.05 else wb["does"]
+                h2_text = t('h2_desc').format(
+                    sign_word=sign_word2, treat_label=TREAT_LABEL, reviews_label=REVIEWS_LABEL,
+                    beta=beta_h2, p_str=fmt_p(p_h2), verb=verb2, effect_word2=effect_word2
+                )
+
+                h3_text = t('h3_desc').format(
+                    treat_label=TREAT_LABEL, coupon_label=COUPON_LABEL, beta=beta_h3, p_str=fmt_p(p_h3)
+                )
+            else:
+                h1_text = h2_text = h3_text = "N/A — insufficient data to estimate this interaction."
+
             with h_col1:
                 st.markdown(f"""
                 <div class="hypothesis-card">
-                    <h4 style="color:#0F766E; margin-top:0;">{t('h1_title')}</h4>
-                    <p style="font-size:0.9rem;">{t('h1_desc')}</p>
+                    <h4 style="color:#1D4ED8; margin-top:0;">{t('h1_title')}</h4>
+                    <p style="font-size:0.9rem;">{h1_text}</p>
                 </div>
                 """, unsafe_allow_html=True)
             with h_col2:
                 st.markdown(f"""
                 <div class="hypothesis-card">
-                    <h4 style="color:#0F766E; margin-top:0;">{t('h2_title')}</h4>
-                    <p style="font-size:0.9rem;">{t('h2_desc')}</p>
+                    <h4 style="color:#1D4ED8; margin-top:0;">{t('h2_title')}</h4>
+                    <p style="font-size:0.9rem;">{h2_text}</p>
                 </div>
                 """, unsafe_allow_html=True)
             with h_col3:
                 st.markdown(f"""
                 <div class="hypothesis-card">
-                    <h4 style="color:#0F766E; margin-top:0;">{t('h3_title')}</h4>
-                    <p style="font-size:0.9rem;">{t('h3_desc')}</p>
+                    <h4 style="color:#1D4ED8; margin-top:0;">{t('h3_title')}</h4>
+                    <p style="font-size:0.9rem;">{h3_text}</p>
                 </div>
                 """, unsafe_allow_html=True)
 
-        # ----------------------------------------------------
-        # BRANCH B: Non-Parametric Tree Models (RF / XGBoost)
-        # ----------------------------------------------------
         else:
+            # ----------------------------------------------------
+            # BRANCH B: Non-Parametric Tree Models (RF / XGBoost)
+            # ----------------------------------------------------
             st.markdown(f"**Non-Parametric Model Active:** Coefficient tables and p-values are not defined for decision tree ensembles. Displaying Feature Importances & Model Evaluation Metrics for `{active_model_display_name}`.")
-            
-            X = active_df[X_vars]
-            y = active_df['log_purchased']
-            
-            from sklearn.model_selection import train_test_split
+
+            with st.spinner(f"Training {active_model_display_name}..."):
+                tree_model, X_train, X_test, y_train, y_test = fit_tree_model(X, y, selected_model_key, data_hash)
+
             from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
-            
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=0.20, random_state=42
-            )
-            
-            if selected_model_key == "rf":
-                from sklearn.ensemble import RandomForestRegressor as SKRF
-                tree_model = SKRF(n_estimators=100, random_state=42, n_jobs=-1)
-            else:
-                from xgboost import XGBRegressor as SKXGB
-                tree_model = SKXGB(n_estimators=100, learning_rate=0.1, random_state=42, n_jobs=-1)
-                
-            tree_model.fit(X_train, y_train)
             y_pred = tree_model.predict(X_test)
-            
+
             r2_val = r2_score(y_test, y_pred)
             rmse_val = np.sqrt(mean_squared_error(y_test, y_pred))
             mae_val = mean_absolute_error(y_test, y_pred)
-            
+
             met_col1, met_col2, met_col3, met_col4 = st.columns(4)
             met_col1.metric("R² Score (Test set)", f"{r2_val:.4f}")
             met_col2.metric("RMSE (Test set)", f"{rmse_val:.4f}")
             met_col3.metric("MAE (Test set)", f"{mae_val:.4f}")
             met_col4.metric("Samples N (Train / Test)", f"{len(X_train):,} / {len(X_test):,}")
-            
+
             st.markdown("---")
             st.subheader(f"Feature Importance Map ({active_model_display_name})")
-            
+
             importances = tree_model.feature_importances_
             feature_imp_df = pd.DataFrame({
-                "Feature / ตัวแปรพยากรณ์": [translate_var_name(v, lang) for v in X_vars],
+                "Feature": [translate_var_name(v) for v in X_VARS],
                 "Importance": importances
             }).sort_values("Importance", ascending=True)
-            
+
             fig_tree_imp = px.bar(
                 feature_imp_df,
                 x='Importance',
-                y='Feature / ตัวแปรพยากรณ์',
+                y='Feature',
                 orientation='h',
                 color='Importance',
-                color_continuous_scale='Tealgrn',
+                color_continuous_scale='Blues',
                 text='Importance'
             )
             fig_tree_imp.update_traces(texttemplate='%{text:.4f}', textposition='outside')
             fig_tree_imp.update_layout(
                 height=420,
                 font=PLOTLY_FONT,
+            hoverlabel=CHART_HOVERLABEL,
+            colorway=CHART_COLORWAY,
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
-                xaxis=dict(showgrid=True, gridcolor='rgba(148,163,184,0.2)'),
+                xaxis=dict(showgrid=True, gridcolor=CHART_GRIDCOLOR),
                 yaxis=dict(showgrid=False)
             )
             st.plotly_chart(fig_tree_imp, use_container_width=True, theme="streamlit", config=PLOTLY_CONFIG)
-            
+
+            csv_bytes = feature_imp_df.to_csv(index=False).encode('utf-8')
+            st.download_button(t('download_regression_csv'), data=csv_bytes, file_name=f"feature_importance_{selected_model_key}.csv", mime="text/csv")
+
     else:
         st.warning("Insufficient data in selected sample filter.")
 
@@ -1157,263 +1638,289 @@ with tabs[1]:
 # --- TAB 3: SHAP & NON-LINEAR BOUNDARY ANALYSIS ---
 # =============================================================================
 with tabs[2]:
-    # Active Model Engine Badge
     st.markdown(f'<div class="engine-badge">{t("badge_shap_engine").format(model_name=active_model_display_name)}</div>', unsafe_allow_html=True)
-    
+
     st.subheader(t('shap_title'))
     st.markdown(f'<p style="color: #4A5568; font-size: 14px; font-weight: 500; margin-top: -6px; margin-bottom: 18px;">{t("shap_subtitle")}</p>', unsafe_allow_html=True)
-    
-    # Check if parametric vs non-parametric model is selected
+
+    shap_sample_df = filtered_df if len(filtered_df) > len(X_VARS) + 2 else None
+
     if selected_model_key in ["ols", "ridge"]:
         st.info(t('linear_shap_note'))
-        
+
         st.markdown(f"#### {t('shap_summary_title').format(model_name=active_model_display_name)}")
         st.markdown(f'<p style="color: #4A5568; font-size: 13px; margin-top: -4px;">{t("shap_summary_desc")}</p>', unsafe_allow_html=True)
-        
-        # Standardized Beta Linear Importance
-        linear_imp_df = pd.DataFrame({
-            'Feature': [
-                translate_var_name('log_price', lang),
-                translate_var_name('interaction_price_green', lang),
-                translate_var_name('log_reviews', lang),
-                translate_var_name('is_green_binary', lang),
-                translate_var_name('interaction_reviews_green', lang),
-                translate_var_name('product_rating', lang),
-                translate_var_name('is_sponsored_binary', lang),
-                translate_var_name('has_coupon_binary', lang)
-            ],
-            'Beta Magnitude |β|': [0.427, 0.447, 0.196, 0.301, 0.223, 0.230, 1.500, 0.065]
-        }).sort_values('Beta Magnitude |β|', ascending=True)
-        
-        fig_lin_imp = px.bar(
-            linear_imp_df,
-            x='Beta Magnitude |β|',
-            y='Feature',
-            orientation='h',
-            color='Beta Magnitude |β|',
-            color_continuous_scale='Tealgrn',
-            text='Beta Magnitude |β|'
-        )
-        fig_lin_imp.update_traces(texttemplate='%{text:.3f}', textposition='outside')
-        fig_lin_imp.update_layout(
-            height=380,
-            font=PLOTLY_FONT,
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            xaxis=dict(showgrid=True, gridcolor='rgba(148,163,184,0.2)'),
-            yaxis=dict(showgrid=False)
-        )
-        st.plotly_chart(fig_lin_imp, use_container_width=True, theme="streamlit", config=PLOTLY_CONFIG)
-        
-    else: # Tree Models (Random Forest / XGBoost)
-        st.markdown(f"#### {t('shap_summary_title').format(model_name=active_model_display_name)}")
-        st.markdown(f'<p style="color: #4A5568; font-size: 13px; margin-top: -4px;">{t("shap_summary_desc")}</p>', unsafe_allow_html=True)
-        
-        # Model-specific SHAP values
-        if selected_model_key == "rf":
-            shap_vals = [0.462, 0.380, 0.308, 0.252, 0.188, 0.160, 0.120, 0.040]
-        else: # xgboost
-            shap_vals = [0.512, 0.415, 0.335, 0.270, 0.210, 0.145, 0.132, 0.048]
-            
-        shap_importance_df = pd.DataFrame({
-            'Feature': [
-                translate_var_name('log_price', lang),
-                translate_var_name('interaction_price_green', lang),
-                translate_var_name('log_reviews', lang),
-                translate_var_name('is_green_binary', lang),
-                translate_var_name('interaction_reviews_green', lang),
-                translate_var_name('product_rating', lang),
-                translate_var_name('is_sponsored_binary', lang),
-                translate_var_name('has_coupon_binary', lang)
-            ],
-            'Mean |SHAP Value|': shap_vals
-        }).sort_values('Mean |SHAP Value|', ascending=True)
-        
-        fig_shap_imp = px.bar(
-            shap_importance_df,
-            x='Mean |SHAP Value|',
-            y='Feature',
-            orientation='h',
-            color='Mean |SHAP Value|',
-            color_continuous_scale='Tealgrn',
-            text='Mean |SHAP Value|'
-        )
-        fig_shap_imp.update_traces(texttemplate='%{text:.3f}', textposition='outside')
-        fig_shap_imp.update_layout(
-            height=380,
-            font=PLOTLY_FONT,
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            xaxis=dict(showgrid=True, gridcolor='rgba(148,163,184,0.2)'),
-            yaxis=dict(showgrid=False)
-        )
-        st.plotly_chart(fig_shap_imp, use_container_width=True, theme="streamlit", config=PLOTLY_CONFIG)
-        
-        st.markdown("---")
-        
-        # 2. SHAP Dependence Plot & Critical Price Boundary ($85 - $100)
-        st.markdown(f"#### {t('shap_dep_title')}")
-        st.markdown(f'<p style="color: #4A5568; font-size: 13px; margin-top: -4px;">{t("shap_dep_subtitle")}</p>', unsafe_allow_html=True)
-        
-        prices = np.linspace(10, 300, 150)
-        shap_utility = 0.08 + 0.42 / (1 + np.exp(-(prices - 92.5) / 5.5))
-        
-        dep_df = pd.DataFrame({
-            'Price ($)': prices,
-            'Eco-Badge SHAP Value (Utility)': shap_utility
-        })
-        
-        fig_dep = go.Figure()
-        fig_dep.add_trace(go.Scatter(
-            x=dep_df['Price ($)'],
-            y=dep_df['Eco-Badge SHAP Value (Utility)'],
-            mode='lines',
-            name=f'Eco-Badge SHAP Utility ({active_model_display_name})',
-            line=dict(color='#0D9488', width=3)
-        ))
-        
-        # Highlight Critical Boundary Zone ($85 - $100)
-        fig_dep.add_vrect(
-            x0=85, x1=100,
-            fillcolor="#F59E0B", opacity=0.22,
-            layer="below", line_width=0,
-            annotation_text="Critical Price Boundary ($85 – $100)",
-            annotation_position="top left",
-            annotation=dict(font=dict(size=12, color="#B45309", family="Prompt"))
-        )
-        
-        fig_dep.update_layout(
-            height=420,
-            font=PLOTLY_FONT,
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            xaxis=dict(title='Discounted Price ($)', showgrid=True, gridcolor='rgba(148,163,184,0.2)'),
-            yaxis=dict(title='Eco-Badge Marginal SHAP Utility (Log Sales Boost)', showgrid=True, gridcolor='rgba(148,163,184,0.2)')
-        )
-        st.plotly_chart(fig_dep, use_container_width=True, theme="streamlit", config=PLOTLY_CONFIG)
-        
-        # ELM Theoretical Framework Cards
-        st.markdown(f"### 💡 {t('elm_card_title')}")
-        elm_col1, elm_col2, elm_col3 = st.columns(3)
-        with elm_col1:
-            st.markdown(f"""
-            <div class="elm-card">
-                <h4 style="color:#64748B; margin-top:0;">{t('elm_low_title')}</h4>
-                <p style="font-size:0.88rem; color:#334155;">{t('elm_low_desc')}</p>
-            </div>
-            """, unsafe_allow_html=True)
-        with elm_col2:
-            st.markdown(f"""
-            <div class="elm-card" style="border: 2px solid #F59E0B; background-color: #FFFBEB;">
-                <h4 style="color:#B45309; margin-top:0;">{t('elm_mid_title')}</h4>
-                <p style="font-size:0.88rem; color:#78350F;">{t('elm_mid_desc')}</p>
-            </div>
-            """, unsafe_allow_html=True)
-        with elm_col3:
-            st.markdown(f"""
-            <div class="elm-card" style="border: 2px solid #0D9488; background-color: #F0FDFA;">
-                <h4 style="color:#0F766E; margin-top:0;">{t('elm_high_title')}</h4>
-                <p style="font-size:0.88rem; color:#115E59;">{t('elm_high_desc')}</p>
-            </div>
-            """, unsafe_allow_html=True)
+
+        if headline_stats is not None:
+            beta_features = [v for v in X_VARS]
+            linear_imp_df = pd.DataFrame({
+                'Feature': [translate_var_name(v) for v in beta_features],
+                'Beta Magnitude |β|': [abs(headline_stats.params.get(v, 0.0)) for v in beta_features]
+            }).sort_values('Beta Magnitude |β|', ascending=True)
+
+            fig_lin_imp = px.bar(
+                linear_imp_df,
+                x='Beta Magnitude |β|',
+                y='Feature',
+                orientation='h',
+                color='Beta Magnitude |β|',
+                color_continuous_scale='Blues',
+                text='Beta Magnitude |β|'
+            )
+            fig_lin_imp.update_traces(texttemplate='%{text:.3f}', textposition='outside')
+            fig_lin_imp.update_layout(
+                height=380,
+                font=PLOTLY_FONT,
+            hoverlabel=CHART_HOVERLABEL,
+            colorway=CHART_COLORWAY,
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                xaxis=dict(showgrid=True, gridcolor=CHART_GRIDCOLOR),
+                yaxis=dict(showgrid=False)
+            )
+            st.plotly_chart(fig_lin_imp, use_container_width=True, theme="streamlit", config=PLOTLY_CONFIG)
+        else:
+            st.info("Not enough data to estimate standardized coefficients.")
+
+    else:  # Tree Models (Random Forest / XGBoost) — real TreeSHAP
+        if shap_sample_df is None:
+            st.warning("Insufficient data to compute SHAP values for the active filter.")
+        else:
+            X_full = shap_sample_df[X_VARS]
+            y_full = shap_sample_df['log_purchased']
+            data_hash = _df_hash(shap_sample_df, X_VARS + ['log_purchased'])
+
+            with st.spinner(f"Training {active_model_display_name}..."):
+                tree_model, X_train, X_test, y_train, y_test = fit_tree_model(X_full, y_full, selected_model_key, data_hash)
+
+            @st.cache_resource(show_spinner=False)
+            def compute_shap_values(_model, _X_sample, model_key, data_hash, sample_size):
+                import shap
+                explainer = shap.TreeExplainer(_model)
+                sv = explainer.shap_values(_X_sample)
+                return sv
+
+            shap_sample_size = min(500, len(X_full))
+            X_shap_sample = X_full.sample(shap_sample_size, random_state=42) if len(X_full) > shap_sample_size else X_full
+
+            with st.spinner("Computing SHAP values..."):
+                shap_values = compute_shap_values(tree_model, X_shap_sample, selected_model_key, data_hash, shap_sample_size)
+
+            mean_abs_shap = np.abs(shap_values).mean(axis=0)
+
+            st.markdown(f"#### {t('shap_summary_title').format(model_name=active_model_display_name)}")
+            st.markdown(f'<p style="color: #4A5568; font-size: 13px; margin-top: -4px;">{t("shap_summary_desc")}</p>', unsafe_allow_html=True)
+
+            shap_importance_df = pd.DataFrame({
+                'Feature': [translate_var_name(v) for v in X_VARS],
+                'Mean |SHAP Value|': mean_abs_shap
+            }).sort_values('Mean |SHAP Value|', ascending=True)
+
+            fig_shap_imp = px.bar(
+                shap_importance_df,
+                x='Mean |SHAP Value|',
+                y='Feature',
+                orientation='h',
+                color='Mean |SHAP Value|',
+                color_continuous_scale='Blues',
+                text='Mean |SHAP Value|'
+            )
+            fig_shap_imp.update_traces(texttemplate='%{text:.3f}', textposition='outside')
+            fig_shap_imp.update_layout(
+                height=380,
+                font=PLOTLY_FONT,
+            hoverlabel=CHART_HOVERLABEL,
+            colorway=CHART_COLORWAY,
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                xaxis=dict(showgrid=True, gridcolor=CHART_GRIDCOLOR),
+                yaxis=dict(showgrid=False)
+            )
+            st.plotly_chart(fig_shap_imp, use_container_width=True, theme="streamlit", config=PLOTLY_CONFIG)
+
+            st.markdown("---")
+
+            # ---- Real SHAP Dependence Plot for the treatment feature vs price ----
+            treat_idx = X_VARS.index('is_green_binary')
+            treat_shap = shap_values[:, treat_idx]
+            price_vals = X_shap_sample['discounted_price'] if 'discounted_price' in X_shap_sample.columns else shap_sample_df.loc[X_shap_sample.index, 'discounted_price']
+
+            dep_df = pd.DataFrame({'Price': price_vals.values, 'SHAP': treat_shap}).sort_values('Price')
+
+            boundary_lo, boundary_hi, low_val, high_val = None, None, None, None
+            if dep_df['Price'].nunique() > 5:
+                n_bins = min(20, dep_df['Price'].nunique())
+                dep_df['bin'] = pd.qcut(dep_df['Price'], q=n_bins, duplicates='drop')
+                binned = dep_df.groupby('bin', observed=True).agg(mean_price=('Price', 'mean'), mean_shap=('SHAP', 'mean')).reset_index()
+                if len(binned) > 2:
+                    binned['shap_delta'] = binned['mean_shap'].diff().abs()
+                    steepest_idx = binned['shap_delta'].idxmax()
+                    if steepest_idx is not None and steepest_idx > 0:
+                        boundary_lo = float(binned.loc[steepest_idx - 1, 'mean_price'])
+                        boundary_hi = float(binned.loc[steepest_idx, 'mean_price'])
+                        low_val = float(binned['mean_shap'].iloc[0])
+                        high_val = float(binned['mean_shap'].iloc[-1])
+
+            if boundary_lo is not None:
+                lo_str, hi_str = f"${boundary_lo:,.0f}", f"${boundary_hi:,.0f}"
+                st.markdown(f"#### {t('shap_dep_title').format(lo=lo_str, hi=hi_str)}")
+                st.markdown(f'<p style="color: #4A5568; font-size: 13px; margin-top: -4px;">{t("shap_dep_subtitle").format(price_label=PRICE_LABEL)}</p>', unsafe_allow_html=True)
+
+                fig_dep = go.Figure()
+                fig_dep.add_trace(go.Scatter(
+                    x=binned['mean_price'], y=binned['mean_shap'],
+                    mode='lines+markers',
+                    name=f'Treatment SHAP Utility ({active_model_display_name})',
+                    line=dict(color='#2563EB', width=3)
+                ))
+                fig_dep.add_vrect(
+                    x0=boundary_lo, x1=boundary_hi,
+                    fillcolor="#F59E0B", opacity=0.22,
+                    layer="below", line_width=0,
+                    annotation_text=f"Critical Price Boundary ({lo_str} – {hi_str})",
+                    annotation_position="top left",
+                    annotation=dict(font=dict(size=12, color="#B45309", family="Prompt"))
+                )
+                fig_dep.update_layout(
+                    height=420,
+                    font=PLOTLY_FONT,
+            hoverlabel=CHART_HOVERLABEL,
+            colorway=CHART_COLORWAY,
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    xaxis=dict(title=PRICE_LABEL, showgrid=True, gridcolor=CHART_GRIDCOLOR),
+                    yaxis=dict(title='Treatment Marginal SHAP Utility (Log Target Boost)', showgrid=True, gridcolor=CHART_GRIDCOLOR)
+                )
+                st.plotly_chart(fig_dep, use_container_width=True, theme="streamlit", config=PLOTLY_CONFIG)
+
+                st.markdown(f"### 💡 {t('elm_card_title')}")
+                elm_col1, elm_col2, elm_col3 = st.columns(3)
+                with elm_col1:
+                    st.markdown(f"""
+                    <div class="elm-card">
+                        <h4 style="color:#64748B; margin-top:0;">{t('elm_low_title').format(lo=lo_str)}</h4>
+                        <p style="font-size:0.88rem; color:#334155;">{t('elm_low_desc').format(low_val=low_val)}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with elm_col2:
+                    st.markdown(f"""
+                    <div class="elm-card" style="border: 2px solid #F59E0B; background-color: #FFFBEB;">
+                        <h4 style="color:#B45309; margin-top:0;">{t('elm_mid_title').format(lo=lo_str, hi=hi_str)}</h4>
+                        <p style="font-size:0.88rem; color:#78350F;">{t('elm_mid_desc')}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with elm_col3:
+                    st.markdown(f"""
+                    <div class="elm-card" style="border: 2px solid #2563EB; background-color: #EFF6FF;">
+                        <h4 style="color:#1D4ED8; margin-top:0;">{t('elm_high_title').format(hi=hi_str)}</h4>
+                        <p style="font-size:0.88rem; color:#115E59;">{t('elm_high_desc').format(high_val=high_val)}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info(t('shap_boundary_unavailable'))
 
 
 # =============================================================================
 # --- TAB 4: INTERACTIVE SCENARIO & PRICING SIMULATOR ---
 # =============================================================================
 with tabs[3]:
-    # Active Model Prediction Engine Badge
     st.markdown(f'<div class="engine-badge">{t("badge_sim_engine").format(model_name=active_model_display_name)}</div>', unsafe_allow_html=True)
-    
+
     st.subheader(t('sim_title'))
     st.write(t('sim_desc'))
-    
-    if len(filtered_df) > 10:
+
+    if len(filtered_df) > len(X_VARS) + 2:
         col_a, col_b = st.columns(2)
+        default_price = float(np.clip(filtered_df['discounted_price'].median(), min_p, max_p))
         with col_a:
-            sim_price = st.number_input(t('sim_price_label'), value=95.0, min_value=1.0, step=5.0)
-            sim_rating = st.slider(t('sim_rating_label'), 1.0, 5.0, 4.5, 0.1)
-            sim_reviews = st.number_input(t('sim_reviews_label'), value=250, min_value=0, step=50)
-        
+            sim_price = st.number_input(t('sim_price_label'), value=default_price, min_value=0.0, step=5.0)
+            sim_rating = st.slider(t('sim_rating_label'), 0.0, 5.0, float(np.clip(filtered_df['product_rating'].mean(), 0, 5)), 0.1)
+            sim_reviews = st.number_input(t('sim_reviews_label'), value=int(filtered_df['total_reviews'].median()), min_value=0, step=50)
+
         with col_b:
-            sim_sponsored = st.checkbox(t('sim_sponsored_label'), value=True)
+            sim_sponsored = st.checkbox(t('sim_sponsored_label'), value=False)
             sim_coupon = st.checkbox(t('sim_coupon_label'), value=False)
-            sim_tag = st.selectbox(t('sim_tag_label'), [t('sim_none_tag')] + GREEN_TAGS)
-            
-        pred_units_base, r2, rmse = get_model_prediction(
-            selected_model_key, sim_price, 0, sim_rating, sim_reviews
-        )
-        
+            group_choice_options = treated_values if len(treated_values) > 1 else ["Treated"]
+            sim_tag = st.selectbox(t('sim_tag_label'), [t('sim_none_tag')] + [str(v) for v in group_choice_options])
+
+        with st.spinner("Generating prediction..."):
+            pred_units_base, r2, rmse = predict_scenario(
+                selected_model_key, filtered_df, sim_price, 0, sim_rating, sim_reviews,
+                coupon=int(sim_coupon), sponsored=int(sim_sponsored)
+            )
+
         std_err = rmse if rmse is not None else 0.8
-        
+
         pred_log_base = np.log1p(pred_units_base)
         ci_lower_base = max(0, np.exp(pred_log_base - 1.96 * std_err) - 1)
         ci_upper_base = max(0, np.exp(pred_log_base + 1.96 * std_err) - 1)
-        
+
         st.markdown("---")
-        
-        # 1. Moderated Price Elasticity & Social Proof Substitution Analytics
+
         st.subheader("Econometric Heterogeneity & Moderation Metrics")
         m_metric_1, m_metric_2 = st.columns(2)
-        
-        # Elasticity calculations
-        eta_std = -0.84
-        eta_green = -0.65 if sim_price >= 85 else -0.74
-        
+
+        if headline_stats is not None:
+            beta_p = headline_stats.params.get('log_price', 0.0)
+            beta_pg = headline_stats.params.get('interaction_price_green', 0.0)
+            eta_std = beta_p
+            eta_green = beta_p + beta_pg
+        else:
+            eta_std, eta_green = 0.0, 0.0
+
         with m_metric_1:
             st.markdown(f"""
             <div class="hypothesis-card">
-                <h4 style="color:#0F766E; margin-top:0;">{t('elasticity_title')}</h4>
+                <h4 style="color:#1D4ED8; margin-top:0;">{t('elasticity_title')}</h4>
                 <p style="font-size:0.95rem; font-weight:600; color:#0F172A; margin-bottom:4px;">
-                    {t('elasticity_standard').format(eta_std=eta_std)} &nbsp;|&nbsp; 
-                    <span style="color:#0D9488;">{t('elasticity_green').format(eta_green=eta_green)}</span>
+                    {t('elasticity_standard').format(eta_std=eta_std)} &nbsp;|&nbsp;
+                    <span style="color:#2563EB;">{t('elasticity_green').format(eta_green=eta_green)}</span>
                 </p>
                 <p style="font-size:0.85rem; color:#475569;">{t('elasticity_desc').format(eta_std=eta_std, eta_green=eta_green)}</p>
             </div>
             """, unsafe_allow_html=True)
-            
-        # Substitution calculations
-        eq_reviews = int(350 * np.exp(-sim_reviews / 1000.0))
-        pct_lift = max(4.2, 22.5 * np.exp(-sim_reviews / 1200.0))
-        
+
+        beta_rg = headline_stats.params.get('interaction_reviews_green', 0.0) if headline_stats is not None else 0.0
+        eq_reviews = int(max(0, beta_rg) * 800)
+        max_reviews = max(1.0, float(filtered_df['total_reviews'].quantile(0.95)))
+        pct_lift = max(0.5, min(50.0, abs(beta_rg) * 100 * (1 - min(sim_reviews, max_reviews) / max_reviews)))
+
         with m_metric_2:
             st.markdown(f"""
             <div class="hypothesis-card">
-                <h4 style="color:#0F766E; margin-top:0;">{t('substitution_title')}</h4>
+                <h4 style="color:#1D4ED8; margin-top:0;">{t('substitution_title')}</h4>
                 <p style="font-size:0.88rem; color:#334155;">
                     {t('substitution_desc').format(reviews=int(sim_reviews), eq_reviews=eq_reviews, pct_lift=pct_lift)}
                 </p>
             </div>
             """, unsafe_allow_html=True)
-            
+
         st.markdown("---")
         st.subheader(t('sim_result_header'))
-        
+
+        pred_units_tagged = None
         if sim_tag != t('sim_none_tag'):
-            clean_tag_name = sim_tag
-            
-            pred_units_tagged, _, _ = get_model_prediction(
-                selected_model_key, sim_price, 1, sim_rating, sim_reviews
-            )
-            
+            with st.spinner("Generating prediction..."):
+                pred_units_tagged, _, _ = predict_scenario(
+                    selected_model_key, filtered_df, sim_price, 1, sim_rating, sim_reviews,
+                    coupon=int(sim_coupon), sponsored=int(sim_sponsored)
+                )
+
             pred_log_tagged = np.log1p(pred_units_tagged)
             ci_lower_tagged = max(0, np.exp(pred_log_tagged - 1.96 * std_err) - 1)
             ci_upper_tagged = max(0, np.exp(pred_log_tagged + 1.96 * std_err) - 1)
-            
+
             diff_units = pred_units_tagged - pred_units_base
             pct_diff = (diff_units / pred_units_base * 100) if pred_units_base > 0 else 0
-            
+
             res_col1, res_col2, res_col3 = st.columns(3)
-            
-            res_col1.metric(
-                t('sim_standard_product'),
-                f"{int(pred_units_base):,} {t('sim_units_unit')}"
-            )
+
+            res_col1.metric(t('sim_standard_product'), f"{int(pred_units_base):,} {t('sim_units_unit')}")
             res_col1.markdown(
                 f'<p style="color: #333333; font-size: 14px; font-weight: 500; margin-top: 4px;"><b>{t("ci_label")}:</b> [{int(ci_lower_base):,} – {int(ci_upper_base):,}]</p>',
                 unsafe_allow_html=True
             )
-            
+
             res_col2.metric(
                 t('sim_green_product'),
                 f"{int(pred_units_tagged):,} {t('sim_units_unit')}",
@@ -1423,38 +1930,33 @@ with tabs[3]:
                 f'<p style="color: #333333; font-size: 14px; font-weight: 500; margin-top: 4px;"><b>{t("ci_label")}:</b> [{int(ci_lower_tagged):,} – {int(ci_upper_tagged):,}]</p>',
                 unsafe_allow_html=True
             )
-            
-            res_col3.metric(
-                t('sim_conditional_diff'),
-                f"{pct_diff:+.1f}%",
-                f"{diff_units:+,.0f} units"
-            )
-            
+
+            res_col3.metric(t('sim_conditional_diff'), f"{pct_diff:+.1f}%", f"{diff_units:+,.0f} units")
+
             comp_df = pd.DataFrame({
-                'Product Type': [t('sim_standard_label'), f"{t('sim_tagged_label')}: {clean_tag_name}"],
-                'Predicted Monthly Sales': [pred_units_base, pred_units_tagged]
+                'Product Type': [t('sim_standard_label'), f"{t('sim_tagged_label')}: {sim_tag}"],
+                'Predicted Value': [pred_units_base, pred_units_tagged]
             })
-            
+
             fig_comp = px.bar(
                 comp_df,
                 x='Product Type',
-                y='Predicted Monthly Sales',
+                y='Predicted Value',
                 color='Product Type',
-                color_discrete_sequence=['#64748B', '#0D9488'],
-                text='Predicted Monthly Sales',
+                color_discrete_sequence=['#94A3B8', '#2563EB'],
+                text='Predicted Value',
                 title=t('sim_comparison_chart_title') + f" ({active_model_display_name})"
             )
-            fig_comp.update_traces(
-                texttemplate='%{text:,.0f} units',
-                textposition='outside'
-            )
+            fig_comp.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
             fig_comp.update_layout(
                 height=380,
                 font=PLOTLY_FONT,
+            hoverlabel=CHART_HOVERLABEL,
+            colorway=CHART_COLORWAY,
                 showlegend=False,
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
-                yaxis=dict(showgrid=True, gridcolor='rgba(148,163,184,0.2)', title='Units Sold / Month')
+                yaxis=dict(showgrid=True, gridcolor=CHART_GRIDCOLOR, title='Predicted Value')
             )
             st.plotly_chart(fig_comp, use_container_width=True, theme="streamlit", config=PLOTLY_CONFIG)
         else:
@@ -1464,61 +1966,64 @@ with tabs[3]:
                 unsafe_allow_html=True
             )
             st.info(t('sim_select_tag_prompt'))
-            
-        # Multi-Model Comparison
+
         st.markdown("---")
-        st.subheader("Model Prediction Comparison" if lang == "EN" else "เปรียบเทียบผลพยากรณ์ระหว่างโมเดล")
-        
+        st.subheader("Model Prediction Comparison")
+
         compare_green_status = 1 if sim_tag != t('sim_none_tag') else 0
-        compare_data = get_compare_predictions(
-            sim_price, compare_green_status, sim_rating, sim_reviews
-        )
-        
+        with st.spinner("Comparing models..."):
+            compare_data = get_compare_predictions(
+                filtered_df, sim_price, compare_green_status, sim_rating, sim_reviews,
+                coupon=int(sim_coupon), sponsored=int(sim_sponsored)
+            )
+
+        selected_pred = pred_units_tagged if pred_units_tagged is not None else pred_units_base
+
         compare_rows = []
-        selected_pred = pred_units_tagged if sim_tag != t('sim_none_tag') else pred_units_base
-        
         for item in compare_data:
             m_pred = item.get("predicted_sales", 0.0)
             pct_diff = ((m_pred - selected_pred) / selected_pred * 100) if selected_pred > 0 else 0.0
             is_active = (item["model_name"] == selected_model_key)
             compare_rows.append({
-                "Model / แบบจำลอง": f"⭐ {item['display_name']} (Active)" if is_active else item["display_name"],
-                "Predicted Sales / พยากรณ์ยอดขาย (ชิ้น)": int(round(m_pred)),
-                "Difference vs Active / ต่างจากโมเดลหลัก": f"Active Engine (0.0%)" if is_active else f"{pct_diff:+.1f}%",
+                "Model": f"⭐ {item['display_name']} (Active)" if is_active else item["display_name"],
+                "Predicted Value": round(m_pred, 2),
+                "Difference vs Active": "Active Engine (0.0%)" if is_active else f"{pct_diff:+.1f}%",
                 "R² Score": f"{item['metrics']['R2_Score']:.4f}" if item["metrics"].get("R2_Score") is not None else "N/A",
                 "RMSE": f"{item['metrics']['RMSE']:.4f}" if item["metrics"].get("RMSE") is not None else "N/A"
             })
-            
+
         compare_df = pd.DataFrame(compare_rows)
-        
+
         fig_all_comp = px.bar(
             compare_df,
-            x='Model / แบบจำลอง',
-            y='Predicted Sales / พยากรณ์ยอดขาย (ชิ้น)',
-            color='Model / แบบจำลอง',
-            color_discrete_sequence=['#0D9488' if selected_model_key == k else '#64748B' for k in ["ols", "ridge", "rf", "xgboost"]],
-            text='Predicted Sales / พยากรณ์ยอดขาย (ชิ้น)',
-            title="Model-Predicted Sales Volume Comparison" if lang == "EN" else "เปรียบเทียบปริมาณยอดขายพยากรณ์ระหว่างแบบจำลอง"
+            x='Model',
+            y='Predicted Value',
+            color='Model',
+            color_discrete_sequence=['#2563EB' if selected_model_key == k else '#94A3B8' for k in MODEL_OPTIONS_ORDER],
+            text='Predicted Value',
+            title="Model-Predicted Value Comparison"
         )
-        fig_all_comp.update_traces(
-            texttemplate='%{text:,.0f} units',
-            textposition='outside'
-        )
+        fig_all_comp.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
         fig_all_comp.update_layout(
             height=380,
             font=PLOTLY_FONT,
+            hoverlabel=CHART_HOVERLABEL,
+            colorway=CHART_COLORWAY,
             showlegend=False,
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)',
-            yaxis=dict(showgrid=True, gridcolor='rgba(148,163,184,0.2)', title='Predicted Units / Month')
+            yaxis=dict(showgrid=True, gridcolor=CHART_GRIDCOLOR, title='Predicted Value')
         )
         st.plotly_chart(fig_all_comp, use_container_width=True, theme="streamlit", config=PLOTLY_CONFIG)
-        
+
         st.dataframe(compare_df, use_container_width=True, hide_index=True)
-        
+
+        csv_bytes = compare_df.to_csv(index=False).encode('utf-8')
+        st.download_button(t('download_compare_csv'), data=csv_bytes, file_name="model_comparison.csv", mime="text/csv")
+
         st.markdown("---")
         st.markdown(
-            f'<p style="color: #4A5568; font-style: italic; font-size: 13px; margin-top: 12px;"><b>หมายเหตุ / Note:</b> {t("disclaimer_text")}</p>',
+            f'<p style="color: #4A5568; font-style: italic; font-size: 13px; margin-top: 12px;"><b>Note:</b> {t("disclaimer_text")}</p>',
             unsafe_allow_html=True
         )
     else:
