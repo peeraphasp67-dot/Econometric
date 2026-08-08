@@ -796,6 +796,18 @@ df = df_clean
 PSM_COVARIATES = ['log_price', 'log_reviews', 'product_rating', 'is_sponsored_binary', 'has_coupon_binary']
 
 
+def standardized_diff(a, b):
+    """Mean Absolute Standardized Difference (MASD) between two covariate samples."""
+    a = a.dropna()
+    b = b.dropna()
+    if len(a) == 0 or len(b) == 0:
+        return 0.0
+    pooled_std = np.sqrt((a.var() + b.var()) / 2)
+    if pooled_std == 0 or not np.isfinite(pooled_std):
+        return 0.0
+    return abs((a.mean() - b.mean()) / pooled_std)
+
+
 @st.cache_data(show_spinner=False)
 def run_psm(df_in, covariates, data_key):
     treated = df_in[df_in['is_green_binary'] == 1].copy()
@@ -839,6 +851,42 @@ if not psm_matched:
     st.sidebar.warning(t('warn_psm_fallback'))
 
 # -----------------------------------------------------------------------------
+# 7B. DATASET HEALTH & SCARCITY DIAGNOSTICS (shown for user-uploaded datasets)
+# -----------------------------------------------------------------------------
+if not is_demo_active:
+    _raw_treated_full = df[df['is_green_binary'] == 1]
+    _raw_control_full = df[df['is_green_binary'] == 0]
+    _matched_treated_full = psm_df[psm_df['is_green_binary'] == 1]
+    _matched_control_full = psm_df[psm_df['is_green_binary'] == 0]
+
+    _raw_masd_vals = [standardized_diff(_raw_treated_full[c], _raw_control_full[c]) for c in PSM_COVARIATES]
+    _mean_masd_raw = float(np.mean(_raw_masd_vals)) if _raw_masd_vals else 0.0
+    if psm_matched:
+        _matched_masd_vals = [standardized_diff(_matched_treated_full[c], _matched_control_full[c]) for c in PSM_COVARIATES]
+        _mean_masd_matched = float(np.mean(_matched_masd_vals)) if _matched_masd_vals else _mean_masd_raw
+    else:
+        _mean_masd_matched = _mean_masd_raw
+
+    _scarcity_pct = (df['is_green_binary'].mean() * 100) if len(df) > 0 else 0.0
+    _masd_ok = _mean_masd_matched < 0.10
+
+    st.markdown(f"##### 🩺 {t('dataset_health_title')}")
+    st.markdown(f'<p style="color: #4A5568; font-size: 13px; margin-top: -6px; margin-bottom: 10px;">{t("dataset_health_desc")}</p>', unsafe_allow_html=True)
+
+    _health_col1, _health_col2 = st.columns(2)
+    _health_col1.metric(t('dataset_health_scarcity_label'), f"{_scarcity_pct:.1f}%")
+    _health_col2.metric(
+        t('dataset_health_masd_label'),
+        t('dataset_health_masd_pass') if _masd_ok else t('dataset_health_masd_fail'),
+        t('dataset_health_masd_detail').format(before=_mean_masd_raw, after=_mean_masd_matched)
+    )
+
+    if not psm_matched:
+        st.warning(t('warn_psm_fallback'))
+
+    st.markdown("---")
+
+# -----------------------------------------------------------------------------
 # 8. SIDEBAR FILTERS & DYNAMIC MODEL SELECTION
 # -----------------------------------------------------------------------------
 st.sidebar.markdown("---")
@@ -867,10 +915,10 @@ st.sidebar.markdown("---")
 st.sidebar.subheader(t('predictive_model_header'))
 
 model_options = {
-    "ols": "OLS Regression (Recommended for Econometrics)",
-    "ridge": "Ridge Regression",
-    "rf": "Random Forest Regressor",
-    "xgboost": "XGBoost Regressor (High Accuracy)"
+    "ols": t('model_ols'),
+    "ridge": t('model_ridge'),
+    "rf": t('model_rf'),
+    "xgboost": t('model_xgboost')
 }
 
 selected_model_key = st.sidebar.selectbox(
@@ -948,7 +996,12 @@ def _df_hash(frame, cols):
 
 @st.cache_resource(show_spinner=False)
 def fit_ols(_X, _y, data_hash):
-    X_const = sm.add_constant(_X)
+    # has_constant='add' is required (not the 'skip' default): datasets with
+    # several unmapped optional columns can produce multiple constant feature
+    # columns (e.g. a fixed rating default), which would otherwise make
+    # statsmodels silently skip adding the intercept — desyncing the fitted
+    # parameter count from the exog shape used later at prediction time.
+    X_const = sm.add_constant(_X, has_constant='add')
     return sm.OLS(_y, X_const).fit()
 
 
@@ -975,10 +1028,74 @@ def fit_tree_model(_X, _y, model_key, data_hash):
 
 
 @st.cache_resource(show_spinner=False)
+def compute_shap_values(_model, _X_sample, model_key, data_hash, sample_size):
+    import shap
+    explainer = shap.TreeExplainer(_model)
+    return explainer.shap_values(_X_sample)
+
+
+def estimate_shap_price_boundary(df_in, model_key="xgboost"):
+    """Dynamically estimate the non-linear price inflection boundary for the
+    treatment effect, straight from a real TreeSHAP dependence curve fitted on
+    the active dataset (demo or user-uploaded) — never hardcoded.
+
+    Returns (boundary_lo, boundary_hi, low_val, high_val, binned_df, r2) or
+    (None, None, None, None, None, None) if there isn't enough data/variation.
+    """
+    if df_in is None or len(df_in) <= len(X_VARS) + 2:
+        return None, None, None, None, None, None
+
+    X_full = df_in[X_VARS]
+    y_full = df_in['log_purchased']
+    data_hash = _df_hash(df_in, X_VARS + ['log_purchased'])
+
+    try:
+        tree_model, X_train, X_test, y_train, y_test = fit_tree_model(X_full, y_full, model_key, data_hash)
+        from sklearn.metrics import r2_score
+        test_r2 = float(r2_score(y_test, tree_model.predict(X_test)))
+
+        sample_size = min(500, len(X_full))
+        X_shap_sample = X_full.sample(sample_size, random_state=42) if len(X_full) > sample_size else X_full
+        shap_values = compute_shap_values(tree_model, X_shap_sample, model_key, data_hash, sample_size)
+
+        treat_idx = X_VARS.index('is_green_binary')
+        treat_shap = shap_values[:, treat_idx]
+        price_vals = X_shap_sample['discounted_price'] if 'discounted_price' in X_shap_sample.columns else df_in.loc[X_shap_sample.index, 'discounted_price']
+
+        dep_df = pd.DataFrame({'Price': price_vals.values, 'SHAP': treat_shap}).sort_values('Price')
+        if dep_df['Price'].nunique() <= 5:
+            return None, None, None, None, None, test_r2
+
+        n_bins = min(20, dep_df['Price'].nunique())
+        dep_df['bin'] = pd.qcut(dep_df['Price'], q=n_bins, duplicates='drop')
+        binned = dep_df.groupby('bin', observed=True).agg(mean_price=('Price', 'mean'), mean_shap=('SHAP', 'mean')).reset_index()
+        if len(binned) <= 2:
+            return None, None, None, None, None, test_r2
+
+        binned['shap_delta'] = binned['mean_shap'].diff().abs()
+        steepest_idx = binned['shap_delta'].idxmax()
+        if steepest_idx is None or steepest_idx <= 0:
+            return None, None, None, None, None, test_r2
+
+        boundary_lo = float(binned.loc[steepest_idx - 1, 'mean_price'])
+        boundary_hi = float(binned.loc[steepest_idx, 'mean_price'])
+        low_val = float(binned['mean_shap'].iloc[0])
+        high_val = float(binned['mean_shap'].iloc[-1])
+        return boundary_lo, boundary_hi, low_val, high_val, binned, test_r2
+    except Exception:
+        return None, None, None, None, None, None
+
+
+@st.cache_resource(show_spinner=False)
 def get_headline_ols(_X, _y, data_hash):
     """A stable OLS fit on the active sample used to power dynamic hypothesis text,
     regardless of which engine (OLS/Ridge/RF/XGBoost) is selected for display."""
-    X_const = sm.add_constant(_X)
+    # has_constant='add' is required (not the 'skip' default): datasets with
+    # several unmapped optional columns can produce multiple constant feature
+    # columns (e.g. a fixed rating default), which would otherwise make
+    # statsmodels silently skip adding the intercept — desyncing the fitted
+    # parameter count from the exog shape used later at prediction time.
+    X_const = sm.add_constant(_X, has_constant='add')
     return sm.OLS(_y, X_const).fit()
 
 
@@ -1070,6 +1187,14 @@ def compute_crossover_price(stats):
 
 crossover_price = compute_crossover_price(headline_stats)
 
+# ---- Dynamic non-linear price boundary, estimated from a real TreeSHAP
+# dependence curve on the active dataset (never hardcoded). Computed once
+# here with a fixed canonical engine (XGBoost) so the Tab 1 KPI stays stable
+# regardless of which model the user later picks in the sidebar; Tab 3 reuses
+# this exact function (and the cache) when XGBoost is the active selection.
+with st.spinner(t('spinner_shap')):
+    shap_boundary_lo, shap_boundary_hi, _shap_low_val, _shap_high_val, _shap_binned, _shap_boundary_r2 = estimate_shap_price_boundary(filtered_df, model_key="xgboost")
+
 # -----------------------------------------------------------------------------
 # 11. DASHBOARD TABS
 # -----------------------------------------------------------------------------
@@ -1096,8 +1221,8 @@ with tabs[0]:
     col2.metric(t('metric_green_share'), f"{green_count:,} ({green_pct:.1f}%)")
     n_pairs = len(filtered_psm_df) // 2 if psm_matched else 0
     col3.metric(t('metric_psm_sample'), f"{len(filtered_psm_df):,} ({n_pairs:,} Pairs)" if psm_matched else f"{len(filtered_psm_df):,} (Unmatched)")
-    if crossover_price is not None and min_p <= crossover_price <= max_p:
-        col4.metric(t('metric_critical_boundary'), f"${crossover_price:,.0f}")
+    if shap_boundary_lo is not None:
+        col4.metric(t('metric_critical_boundary'), f"\\${shap_boundary_lo:,.0f} – \\${shap_boundary_hi:,.0f}")
     else:
         col4.metric(t('metric_critical_boundary'), t('critical_boundary_na'))
 
@@ -1197,16 +1322,6 @@ with tabs[0]:
     else:
         st.markdown(f'<div class="hypothesis-card">{t("psm_unmatched_info_box")}</div>', unsafe_allow_html=True)
 
-    def standardized_diff(a, b):
-        a = a.dropna()
-        b = b.dropna()
-        if len(a) == 0 or len(b) == 0:
-            return 0.0
-        pooled_std = np.sqrt((a.var() + b.var()) / 2)
-        if pooled_std == 0 or not np.isfinite(pooled_std):
-            return 0.0
-        return abs((a.mean() - b.mean()) / pooled_std)
-
     covariate_labels = {
         'log_price': translate_var_name('log_price'),
         'log_reviews': translate_var_name('log_reviews'),
@@ -1273,6 +1388,19 @@ with tabs[1]:
     else:
         badge_html = f'<div class="engine-badge" style="background-color:#FFFBEB; color:#B45309; border-color:#FDE68A;">{t("badge_nonparametric").format(model_name=active_model_display_name)}</div>'
     st.markdown(badge_html, unsafe_allow_html=True)
+
+    # ---- Methodological Rationale: why two modeling frameworks? ----
+    _r2_note = t('methodology_ml_r2_note').format(r2=_shap_boundary_r2) if _shap_boundary_r2 is not None else ""
+    st.markdown(
+        f"""
+        <div class="hypothesis-card">
+            <h4 style="color:#1D4ED8; margin-top:0;">{t('methodology_card_title')}</h4>
+            <p style="font-size:0.9rem; margin-bottom:6px;"><b>{t('methodology_econometric_label')}</b> — {t('methodology_econometric_desc')}</p>
+            <p style="font-size:0.9rem; margin-bottom:0;"><b>{t('methodology_ml_label')}</b> — {t('methodology_ml_desc').format(r2_note=_r2_note)}</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     sample_choice = st.radio(
         t('model_sample_selector'),
@@ -1463,7 +1591,7 @@ with tabs[1]:
             # ----------------------------------------------------
             st.markdown(t('nonparam_active_note').format(model_name=active_model_display_name))
 
-            with st.spinner(f"Training {active_model_display_name}..."):
+            with st.spinner(t('spinner_train_model').format(model_name=active_model_display_name)):
                 tree_model, X_train, X_test, y_train, y_test = fit_tree_model(X, y, selected_model_key, data_hash)
 
             from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
@@ -1578,13 +1706,6 @@ with tabs[2]:
             with st.spinner(t('spinner_train').format(model_name=active_model_display_name)):
                 tree_model, X_train, X_test, y_train, y_test = fit_tree_model(X_full, y_full, selected_model_key, data_hash)
 
-            @st.cache_resource(show_spinner=False)
-            def compute_shap_values(_model, _X_sample, model_key, data_hash, sample_size):
-                import shap
-                explainer = shap.TreeExplainer(_model)
-                sv = explainer.shap_values(_X_sample)
-                return sv
-
             shap_sample_size = min(500, len(X_full))
             X_shap_sample = X_full.sample(shap_sample_size, random_state=42) if len(X_full) > shap_sample_size else X_full
 
@@ -1627,29 +1748,19 @@ with tabs[2]:
             st.markdown("---")
 
             # ---- Real SHAP Dependence Plot for the treatment feature vs price ----
-            treat_idx = X_VARS.index('is_green_binary')
-            treat_shap = shap_values[:, treat_idx]
-            price_vals = X_shap_sample['discounted_price'] if 'discounted_price' in X_shap_sample.columns else shap_sample_df.loc[X_shap_sample.index, 'discounted_price']
-
-            dep_df = pd.DataFrame({'Price': price_vals.values, 'SHAP': treat_shap}).sort_values('Price')
-
-            boundary_lo, boundary_hi, low_val, high_val = None, None, None, None
-            if dep_df['Price'].nunique() > 5:
-                n_bins = min(20, dep_df['Price'].nunique())
-                dep_df['bin'] = pd.qcut(dep_df['Price'], q=n_bins, duplicates='drop')
-                binned = dep_df.groupby('bin', observed=True).agg(mean_price=('Price', 'mean'), mean_shap=('SHAP', 'mean')).reset_index()
-                if len(binned) > 2:
-                    binned['shap_delta'] = binned['mean_shap'].diff().abs()
-                    steepest_idx = binned['shap_delta'].idxmax()
-                    if steepest_idx is not None and steepest_idx > 0:
-                        boundary_lo = float(binned.loc[steepest_idx - 1, 'mean_price'])
-                        boundary_hi = float(binned.loc[steepest_idx, 'mean_price'])
-                        low_val = float(binned['mean_shap'].iloc[0])
-                        high_val = float(binned['mean_shap'].iloc[-1])
+            # Reuses estimate_shap_price_boundary() — the same function that powers
+            # the Tab 1 KPI card — so the boundary is never hardcoded and stays
+            # consistent across the dashboard. Cache hits instantly when the
+            # currently selected engine matches the canonical one used in Tab 1.
+            boundary_lo, boundary_hi, low_val, high_val, binned, _ = estimate_shap_price_boundary(shap_sample_df, model_key=selected_model_key)
 
             if boundary_lo is not None:
+                # Plain $ for Plotly (not markdown-parsed) vs escaped \$ for any
+                # st.markdown() call, since Streamlit renders a matched "$...$"
+                # pair as LaTeX math and silently drops the literal dollar signs.
                 lo_str, hi_str = f"${boundary_lo:,.0f}", f"${boundary_hi:,.0f}"
-                st.markdown(f"#### {t('shap_dep_title').format(lo=lo_str, hi=hi_str)}")
+                lo_str_md, hi_str_md = f"\\${boundary_lo:,.0f}", f"\\${boundary_hi:,.0f}"
+                st.markdown(f"#### {t('shap_dep_title').format(lo=lo_str_md, hi=hi_str_md)}")
                 st.markdown(f'<p style="color: #4A5568; font-size: 13px; margin-top: -4px;">{t("shap_dep_subtitle").format(price_label=PRICE_LABEL)}</p>', unsafe_allow_html=True)
 
                 fig_dep = go.Figure()
@@ -1684,21 +1795,21 @@ with tabs[2]:
                 with elm_col1:
                     st.markdown(f"""
                     <div class="elm-card">
-                        <h4 style="color:#64748B; margin-top:0;">{t('elm_low_title').format(lo=lo_str)}</h4>
+                        <h4 style="color:#64748B; margin-top:0;">{t('elm_low_title').format(lo=lo_str_md)}</h4>
                         <p style="font-size:0.88rem; color:#334155;">{t('elm_low_desc').format(low_val=low_val)}</p>
                     </div>
                     """, unsafe_allow_html=True)
                 with elm_col2:
                     st.markdown(f"""
                     <div class="elm-card" style="border: 2px solid #F59E0B; background-color: #FFFBEB;">
-                        <h4 style="color:#B45309; margin-top:0;">{t('elm_mid_title').format(lo=lo_str, hi=hi_str)}</h4>
+                        <h4 style="color:#B45309; margin-top:0;">{t('elm_mid_title').format(lo=lo_str_md, hi=hi_str_md)}</h4>
                         <p style="font-size:0.88rem; color:#78350F;">{t('elm_mid_desc')}</p>
                     </div>
                     """, unsafe_allow_html=True)
                 with elm_col3:
                     st.markdown(f"""
                     <div class="elm-card" style="border: 2px solid #2563EB; background-color: #EFF6FF;">
-                        <h4 style="color:#1D4ED8; margin-top:0;">{t('elm_high_title').format(hi=hi_str)}</h4>
+                        <h4 style="color:#1D4ED8; margin-top:0;">{t('elm_high_title').format(hi=hi_str_md)}</h4>
                         <p style="font-size:0.88rem; color:#115E59;">{t('elm_high_desc').format(high_val=high_val)}</p>
                     </div>
                     """, unsafe_allow_html=True)
@@ -1817,19 +1928,20 @@ with tabs[3]:
                 unsafe_allow_html=True
             )
 
-            res_col3.metric(t('sim_conditional_diff'), f"{pct_diff:+.1f}%", f"{diff_units:+,.0f} units")
+            res_col3.metric(t('sim_conditional_diff'), f"{pct_diff:+.1f}%", f"{diff_units:+,.0f} {t('sim_units_unit')}")
 
             col_predicted_value = t('col_predicted_value')
+            col_product_type = t('col_product_type')
             comp_df = pd.DataFrame({
-                'Product Type': [t('sim_standard_label'), f"{t('sim_tagged_label')}: {sim_tag}"],
+                col_product_type: [t('sim_standard_label'), f"{t('sim_tagged_label')}: {sim_tag}"],
                 col_predicted_value: [pred_units_base, pred_units_tagged]
             })
 
             fig_comp = px.bar(
                 comp_df,
-                x='Product Type',
+                x=col_product_type,
                 y=col_predicted_value,
-                color='Product Type',
+                color=col_product_type,
                 color_discrete_sequence=['#94A3B8', '#2563EB'],
                 text=col_predicted_value,
                 title=t('sim_comparison_chart_title') + f" ({active_model_display_name})"
@@ -1876,8 +1988,8 @@ with tabs[3]:
                 col_model: f"⭐ {item['display_name']} (Active)" if is_active else item["display_name"],
                 col_predicted_value: round(m_pred, 2),
                 col_diff: t('active_engine_label') if is_active else f"{pct_diff:+.1f}%",
-                "R² Score": f"{item['metrics']['R2_Score']:.4f}" if item["metrics"].get("R2_Score") is not None else "N/A",
-                "RMSE": f"{item['metrics']['RMSE']:.4f}" if item["metrics"].get("RMSE") is not None else "N/A"
+                t('col_r2_score'): f"{item['metrics']['R2_Score']:.4f}" if item["metrics"].get("R2_Score") is not None else "N/A",
+                t('col_rmse'): f"{item['metrics']['RMSE']:.4f}" if item["metrics"].get("RMSE") is not None else "N/A"
             })
 
         compare_df = pd.DataFrame(compare_rows)
@@ -1908,6 +2020,65 @@ with tabs[3]:
 
         csv_bytes = compare_df.to_csv(index=False).encode('utf-8')
         st.download_button(t('download_compare_csv'), data=csv_bytes, file_name="model_comparison.csv", mime="text/csv")
+
+        # =====================================================================
+        # ---- GREEN CERTIFICATION STRATEGY & ROI SIMULATOR ----
+        # Uses the fitted econometric coefficients (H1 price-elasticity shift,
+        # H2 social-proof substitution) via the same OLS model that powers the
+        # hypothesis cards in Tab 2 — not ad-hoc rules — to give a managerial
+        # recommendation on whether green certification is likely to pay off
+        # for a candidate product at a given price / review count.
+        st.markdown("---")
+        st.markdown(f"### 🌱 {t('roi_simulator_title')}")
+        st.write(t('roi_simulator_desc'))
+
+        _price_budget = float(filtered_df['discounted_price'].quantile(0.25))
+        _price_premium = crossover_price if (crossover_price is not None and min_p <= crossover_price <= max_p) else float(filtered_df['discounted_price'].quantile(0.75))
+        _reviews_low = float(filtered_df['total_reviews'].quantile(0.25))
+        _reviews_high = float(filtered_df['total_reviews'].quantile(0.75))
+        _rating_mean = float(np.clip(filtered_df['product_rating'].mean(), 0, 5))
+
+        roi_col_a, roi_col_b = st.columns(2)
+        with roi_col_a:
+            roi_price = st.number_input(t('roi_price_label'), value=float(np.clip(_price_premium, min_p, max_p)), min_value=0.0, step=5.0, key="roi_price_input")
+        with roi_col_b:
+            roi_reviews = st.number_input(t('roi_reviews_label'), value=int(_reviews_low), min_value=0, step=10, key="roi_reviews_input")
+
+        if headline_stats is not None:
+            with st.spinner(t('spinner_predict')):
+                _roi_pred_without, _, _ = predict_scenario("ols", filtered_df, roi_price, 0, _rating_mean, roi_reviews, coupon=0, sponsored=0)
+                _roi_pred_with, _, _ = predict_scenario("ols", filtered_df, roi_price, 1, _rating_mean, roi_reviews, coupon=0, sponsored=0)
+            _roi_pct_lift = ((_roi_pred_with - _roi_pred_without) / _roi_pred_without * 100) if _roi_pred_without > 0 else 0.0
+
+            if roi_price < _price_budget or roi_reviews >= _reviews_high:
+                _roi_tier = "low"
+            elif roi_price >= _price_premium and roi_reviews <= _reviews_low:
+                _roi_tier = "high"
+            else:
+                _roi_tier = "moderate"
+
+            _roi_tier_map = {
+                "high": (t('roi_rec_high'), t('roi_rationale_high').format(threshold=_price_premium), "#2563EB"),
+                "moderate": (t('roi_rec_moderate'), t('roi_rationale_moderate'), "#D97706"),
+                "low": (t('roi_rec_low'), t('roi_rationale_low').format(threshold=_price_budget), "#DC2626"),
+            }
+            _roi_label, _roi_rationale, _roi_color = _roi_tier_map[_roi_tier]
+
+            roi_result_col1, roi_result_col2 = st.columns([1, 2])
+            with roi_result_col1:
+                st.metric(t('roi_lift_label'), f"{_roi_pct_lift:+.1f}%")
+            with roi_result_col2:
+                st.markdown(
+                    f"""
+                    <div class="hypothesis-card" style="border-left-color:{_roi_color};">
+                        <h4 style="color:{_roi_color}; margin-top:0;">{t('roi_recommendation_header')}: {_roi_label}</h4>
+                        <p style="font-size:0.9rem;">{_roi_rationale}</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+        else:
+            st.info(t('info_not_enough_coef'))
 
         st.markdown("---")
         st.markdown(
