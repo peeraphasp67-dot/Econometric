@@ -1,0 +1,329 @@
+
+==============================================================================
+1. SAMPLE FLOW AND DUPLICATION
+==============================================================================
+  raw_rows                                                42675
+  rows_with_sales_and_price                               30304
+  unique_products                                         7291
+  exact_duplicate_rows(title,price,reviews,rating)        22675
+  green_rows                                              880
+  green_unique_products                                   362
+  green_rows_from_top4_products                           418
+  raw_share_any_tag_%                                     7.99
+  raw_share_green_%                                       3.35
+  listing_share_green_%                                   2.9
+  product_share_green_%                                   4.97
+  green_multi_tag_rows                                    76
+  green_multi_tag_products                                51
+  Top green products by row count:
+                                                              rows   price
+product_title                                                             
+UGREEN 45W USB C Charger, Nexode 2 Port GaN Foldable PPS Wal   151   22.99
+UGREEN 35W USB C Charger, Nexode 2-Ports GaN Foldable PPS Co   110   18.99
+Fintie Keyboard Case for Samsung Galaxy Tab A9 Plus/A9+ 5G 1    93   27.99
+PGYTECH CreateMate High-Speed SD Card Reader USB 3.1 Type-C     64   35.96
+SHOKZ New OpenRun Pro 2 - Open-Ear, Bone Conduction Sport He    25  139.95
+Lenovo Thinkpad E16 Gen 2 Business Laptop 16.0" IPS WUXGA Di    24  634.99
+
+  Outcome support (purchased_last_month): [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 2000] ...
+
+==============================================================================
+2. TABLE I - DESCRIPTIVES (product level, N=7291)
+==============================================================================
+                            Variable  Mean/Share%       SD   Min  Median      Max
+Sales volume (units/month, bucketed)      1383.20  5016.37 50.00   400.0 100000.0
+              Discounted price (USD)       181.30   319.14  2.16    80.7   4198.0
+                       Total reviews      6594.43 25891.87  0.00  1027.0 865598.0
+                        Rating (1-5)         4.46     0.27  2.00     4.5      5.0
+                     Eco-label badge         4.97      NaN  0.00     NaN      1.0
+                           Sponsored         2.44      NaN  0.00     NaN      1.0
+                              Coupon         1.95      NaN  0.00     NaN      1.0
+                         Best Seller         2.63      NaN  0.00     NaN      1.0
+
+  (listing level, N=30304, for reference)
+                            Variable  Mean/Share%       SD   Min  Median      Max
+Sales volume (units/month, bucketed)      1351.32  6468.85 50.00  200.00 100000.0
+              Discounted price (USD)       156.69   258.20  2.16   74.99   4198.0
+                       Total reviews      3688.24 14816.13  0.00  686.00 865598.0
+                        Rating (1-5)         4.44     0.36  2.00    4.50      5.0
+                     Eco-label badge         2.90      NaN  0.00     NaN      1.0
+                           Sponsored        11.88      NaN  0.00     NaN      1.0
+                              Coupon         3.70      NaN  0.00     NaN      1.0
+                         Best Seller         0.85      NaN  0.00     NaN      1.0
+
+  Pre-matching means by badge (product level):
+          discounted_price  total_reviews  rating
+is_green                                         
+0                   184.09        6317.67    4.46
+1                   127.88       11891.94    4.47
+  Product categories: 15 | brands (>=20 products): 85 | brands total: 618
+
+==============================================================================
+3. PSM (product level): logit PS; exact strata Sponsored x Coupon; 1:1 NN, no replacement, caliper 0.02
+==============================================================================
+               coef       p
+const       -1.9616  0.0624
+log_price   -0.1165  0.0235
+log_reviews  0.2270  0.0000
+rating      -0.4849  0.0263
+sponsored    0.1501  0.6403
+coupon      -0.4757  0.3045
+
+  treated=362, matched pairs=360, dropped treated=2, N matched=720
+  Covariate  SMD_raw  SMD_matched  VarRatio_matched
+  log_price    0.322        0.062             0.928
+log_reviews    0.499        0.024             1.010
+     rating    0.017        0.013             0.834
+  sponsored    0.039        0.000             1.000
+     coupon    0.046        0.000             1.000
+  mean SMD raw=0.1846 matched=0.0198
+
+==============================================================================
+4. MODERATED LOG-LOG REGRESSION
+==============================================================================
+
+--- A. Product level, full (HC3): N=7291, R2=0.4640, adjR2=0.4633
+                  b      se       p
+const        3.9479  0.2130  0.0000
+is_green    -1.3580  0.4966  0.0062
+log_price   -0.3226  0.0103  0.0000
+g_x_price    0.1426  0.0655  0.0295
+log_reviews  0.2880  0.0069  0.0000
+g_x_reviews  0.1531  0.0387  0.0001
+coupon       0.0010  0.0888  0.9914
+g_x_coupon  -0.5021  0.2964  0.0903
+rating       0.3314  0.0425  0.0000
+sponsored    0.2481  0.1131  0.0283
+  Badged price gradient b2+b4 = -0.1800 (SE 0.0649, p=0.0055)
+  Badge effect at medians (P=$80.70, R=1027): 0.3317 log pts (SE 0.0634, p=0.0000) -> +39.3% [95% CI +23.1%, +57.8%]
+  Break-even price (badge effect=0 at median reviews): $6.98
+    badge effect at price Q25 ($28.97): +20.8% (p=0.017)
+    badge effect at price Q50 ($80.70): +39.3% (p=0.000)
+    badge effect at price Q75 ($195.74): +57.9% (p=0.000)
+
+--- B. Product level, PSM-matched (SE clustered by pair): N=720, R2=0.4873, adjR2=0.4808
+                  b      se       p
+const        1.8394  0.8731  0.0351
+is_green    -0.9056  0.6158  0.1414
+log_price   -0.3167  0.0518  0.0000
+g_x_price    0.1490  0.0804  0.0639
+log_reviews  0.3503  0.0339  0.0000
+g_x_reviews  0.0785  0.0500  0.1166
+coupon      -0.9635  0.1535  0.0000
+g_x_coupon   0.5138  0.1773  0.0037
+rating       0.7115  0.1668  0.0000
+sponsored    0.3997  0.3906  0.3062
+  Badged price gradient b2+b4 = -0.1677 (SE 0.0643, p=0.0091)
+  Badge effect at medians (P=$49.70, R=2916): 0.3053 log pts (SE 0.0885, p=0.0006) -> +35.7% [95% CI +14.1%, +61.4%]
+  Break-even price (badge effect=0 at median reviews): $5.53
+    badge effect at price Q25 ($20.79): +19.7% (p=0.097)
+    badge effect at price Q50 ($49.70): +35.7% (p=0.001)
+    badge effect at price Q75 ($139.00): +57.9% (p=0.000)
+
+--- C. Listing level as in submitted paper (SE clustered by product): N=30304, R2=0.5561, adjR2=0.5560
+                  b      se       p
+const        4.8043  1.0711  0.0000
+is_green    -3.0184  0.7681  0.0001
+log_price   -0.4272  0.0335  0.0000
+g_x_price    0.4473  0.1234  0.0003
+log_reviews  0.1952  0.0308  0.0000
+g_x_reviews  0.2237  0.0926  0.0157
+coupon       0.0668  0.2866  0.8156
+g_x_coupon  -0.1535  0.4224  0.7164
+rating       0.2315  0.2066  0.2626
+sponsored    1.4989  0.5001  0.0027
+  Badged price gradient b2+b4 = 0.0201 (SE 0.1205, p=0.8676)
+  Badge effect at medians (P=$74.99, R=686): 0.3801 log pts (SE 0.1499, p=0.0112) -> +46.2% [95% CI +9.0%, +96.2%]
+  Break-even price (badge effect=0 at median reviews): $31.48
+    badge effect at price Q25 ($25.47): -8.8% (p=0.650)
+    badge effect at price Q50 ($74.99): +46.2% (p=0.011)
+    badge effect at price Q75 ($182.92): +117.2% (p=0.000)
+
+==============================================================================
+5. ADDITIONAL CONTROLS (Reviewer 2) - product level
+==============================================================================
+
+--- D. + Best Seller + category FE: N=7291, R2=0.4942, adjR2=0.4926
+                  b      se       p
+const        4.1271  0.2269  0.0000
+is_green    -1.1446  0.4623  0.0133
+log_price   -0.3281  0.0104  0.0000
+g_x_price    0.1044  0.0605  0.0846
+log_reviews  0.2773  0.0067  0.0000
+g_x_reviews  0.1379  0.0364  0.0001
+coupon      -0.0263  0.0879  0.7646
+g_x_coupon  -0.3612  0.2783  0.1944
+rating       0.3094  0.0435  0.0000
+sponsored    0.1776  0.1079  0.0998
+  Badged price gradient b2+b4 = -0.2237 (SE 0.0598, p=0.0002)
+  Badge effect at medians (P=$80.70, R=1027): 0.2715 log pts (SE 0.0612, p=0.0000) -> +31.2% [95% CI +16.4%, +47.9%]
+  Break-even price (badge effect=0 at median reviews): $5.06
+    badge effect at price Q25 ($28.97): +18.2% (p=0.029)
+    badge effect at price Q50 ($80.70): +31.2% (p=0.000)
+    badge effect at price Q75 ($195.74): +43.8% (p=0.000)
+
+--- E. + Best Seller + category FE + brand FE (brands>=20 products): N=7291, R2=0.5334, adjR2=0.5263
+                  b      se       p
+const        4.9304  0.2723  0.0000
+is_green    -0.7109  0.4654  0.1266
+log_price   -0.3223  0.0117  0.0000
+g_x_price    0.0358  0.0610  0.5576
+log_reviews  0.2721  0.0068  0.0000
+g_x_reviews  0.1168  0.0361  0.0012
+coupon       0.0490  0.0871  0.5738
+g_x_coupon  -0.3627  0.2701  0.1793
+rating       0.2418  0.0444  0.0000
+sponsored    0.1743  0.1040  0.0939
+  Badged price gradient b2+b4 = -0.2866 (SE 0.0603, p=0.0000)
+  Badge effect at medians (P=$80.70, R=1027): 0.2563 log pts (SE 0.0643, p=0.0001) -> +29.2% [95% CI +13.9%, +46.6%]
+  Break-even price (badge effect=0 at median reviews): $-0.94
+    badge effect at price Q25 ($28.97): +24.7% (p=0.007)
+    badge effect at price Q50 ($80.70): +29.2% (p=0.000)
+    badge effect at price Q75 ($195.74): +33.3% (p=0.001)
+
+--- F. PSM + Best Seller + category FE (clustered by pair): N=720, R2=0.5279, adjR2=0.5116
+                  b      se       p
+const        2.3338  0.9016  0.0096
+is_green    -0.6876  0.5934  0.2465
+log_price   -0.3155  0.0522  0.0000
+g_x_price    0.0911  0.0763  0.2328
+log_reviews  0.3391  0.0325  0.0000
+g_x_reviews  0.0691  0.0482  0.1514
+coupon      -0.9472  0.1720  0.0000
+g_x_coupon   0.6527  0.1725  0.0002
+rating       0.5869  0.1696  0.0005
+sponsored    0.3289  0.3545  0.3534
+  Badged price gradient b2+b4 = -0.2244 (SE 0.0606, p=0.0002)
+  Badge effect at medians (P=$49.70, R=2916): 0.2213 log pts (SE 0.0951, p=0.0199) -> +24.8% [95% CI +3.6%, +50.3%]
+  Break-even price (badge effect=0 at median reviews): $3.47
+    badge effect at price Q25 ($20.79): +15.5% (p=0.195)
+    badge effect at price Q50 ($49.70): +24.8% (p=0.020)
+    badge effect at price Q75 ($139.00): +36.9% (p=0.013)
+
+--- G. Product level without Sponsored: N=7291, R2=0.4632, adjR2=0.4626
+                  b      se       p
+const        3.9777  0.2126  0.0000
+is_green    -1.3884  0.4969  0.0052
+log_price   -0.3241  0.0103  0.0000
+g_x_price    0.1435  0.0656  0.0287
+log_reviews  0.2877  0.0069  0.0000
+g_x_reviews  0.1568  0.0386  0.0000
+coupon       0.0403  0.0877  0.6460
+g_x_coupon  -0.5462  0.2985  0.0673
+rating       0.3278  0.0424  0.0000
+sponsored       NaN     NaN     NaN
+  Badged price gradient b2+b4 = -0.1806 (SE 0.0650, p=0.0054)
+  Badge effect at medians (P=$80.70, R=1027): 0.3309 log pts (SE 0.0634, p=0.0000) -> +39.2% [95% CI +22.9%, +57.7%]
+  Break-even price (badge effect=0 at median reviews): $7.15
+    badge effect at price Q25 ($28.97): +20.6% (p=0.018)
+    badge effect at price Q50 ($80.70): +39.2% (p=0.000)
+    badge effect at price Q75 ($195.74): +57.9% (p=0.000)
+
+--- H. Product-mean aggregation (alt. dedup rule): N=7291, R2=0.4646, adjR2=0.4640
+                  b      se       p
+const        3.9393  0.2130  0.0000
+is_green    -1.3486  0.4958  0.0065
+log_price   -0.3219  0.0103  0.0000
+g_x_price    0.1408  0.0655  0.0315
+log_reviews  0.2890  0.0069  0.0000
+g_x_reviews  0.1527  0.0386  0.0001
+coupon      -0.0031  0.0885  0.9718
+g_x_coupon  -0.5430  0.2858  0.0575
+rating       0.3312  0.0424  0.0000
+sponsored    0.2254  0.0997  0.0238
+  Badged price gradient b2+b4 = -0.1811 (SE 0.0648, p=0.0052)
+  Badge effect at medians (P=$80.30, R=1027): 0.3293 log pts (SE 0.0634, p=0.0000) -> +39.0% [95% CI +22.8%, +57.4%]
+  Break-even price (badge effect=0 at median reviews): $6.84
+    badge effect at price Q25 ($28.98): +20.8% (p=0.016)
+    badge effect at price Q50 ($80.30): +39.0% (p=0.000)
+    badge effect at price Q75 ($195.25): +57.4% (p=0.000)
+
+==============================================================================
+6. OUTCOME MEASUREMENT: ordered logit on sales buckets (product level)
+==============================================================================
+                  b      se       p
+is_green    -2.4548  0.7459  0.0010
+log_price   -0.6349  0.0205  0.0000
+g_x_price    0.2976  0.0976  0.0023
+log_reviews  0.5129  0.0129  0.0000
+g_x_reviews  0.2552  0.0596  0.0000
+coupon      -0.0209  0.1553  0.8928
+g_x_coupon  -0.7809  0.7272  0.2829
+rating       0.5778  0.0811  0.0000
+sponsored    0.3287  0.1591  0.0388
+  left-truncation: min observed bucket = 50 ; share at 50 = 8.1 %
+
+==============================================================================
+7. ML VALIDATION: nested CV (outer 5-fold, inner 3-fold randomized search)
+==============================================================================
+
+  Product level (primary), out-of-sample mean over 5 outer folds:
+                  R2    RMSE     MAE   R2_sd  RMSE_sd  MAE_sd
+OLS           0.4603  0.9944  0.7789  0.0094   0.0145  0.0128
+Ridge         0.4603  0.9943  0.7789  0.0093   0.0144  0.0128
+RandomForest  0.4805  0.9755  0.7597  0.0117   0.0159  0.0100
+XGBoost       0.4794  0.9766  0.7606  0.0106   0.0148  0.0089
+  Selected hyper-parameters per fold:
+    RandomForest fold1: {'n_estimators': 200, 'min_samples_leaf': 10, 'max_features': 0.5, 'max_depth': 8}
+    RandomForest fold2: {'n_estimators': 200, 'min_samples_leaf': 10, 'max_features': 0.5, 'max_depth': 8}
+    RandomForest fold3: {'n_estimators': 200, 'min_samples_leaf': 10, 'max_features': 0.5, 'max_depth': 8}
+    RandomForest fold4: {'n_estimators': 200, 'min_samples_leaf': 10, 'max_features': 0.5, 'max_depth': 8}
+    RandomForest fold5: {'n_estimators': 200, 'min_samples_leaf': 10, 'max_features': 0.5, 'max_depth': 8}
+    XGBoost fold1: {'subsample': 0.9, 'n_estimators': 200, 'min_child_weight': 10, 'max_depth': 3, 'learning_rate': 0.02, 'colsample_bytree': 1.0}
+    XGBoost fold2: {'subsample': 0.7, 'n_estimators': 200, 'min_child_weight': 5, 'max_depth': 3, 'learning_rate': 0.02, 'colsample_bytree': 0.7}
+    XGBoost fold3: {'subsample': 0.7, 'n_estimators': 200, 'min_child_weight': 5, 'max_depth': 3, 'learning_rate': 0.02, 'colsample_bytree': 0.7}
+    XGBoost fold4: {'subsample': 0.9, 'n_estimators': 200, 'min_child_weight': 10, 'max_depth': 3, 'learning_rate': 0.02, 'colsample_bytree': 1.0}
+    XGBoost fold5: {'subsample': 0.7, 'n_estimators': 200, 'min_child_weight': 5, 'max_depth': 3, 'learning_rate': 0.02, 'colsample_bytree': 0.7}
+
+  Leakage demonstration at listing level (default hyper-parameters, 5-fold):
+                  CV scheme        Model     R2
+random KFold (as submitted)          OLS 0.5557
+random KFold (as submitted) RandomForest 0.8649
+random KFold (as submitted)      XGBoost 0.8476
+      GroupKFold by product          OLS 0.4215
+      GroupKFold by product RandomForest 0.2023
+      GroupKFold by product      XGBoost 0.3038
+
+==============================================================================
+8. TreeSHAP on tuned XGBoost (product level, all products)
+==============================================================================
+  mean|SHAP| importance:
+log_reviews    0.4957
+log_price      0.3281
+rating         0.0635
+is_green       0.0261
+sponsored      0.0069
+coupon         0.0001
+  gain share:
+log_reviews    0.588
+log_price      0.247
+rating         0.064
+is_green       0.055
+sponsored      0.037
+coupon         0.010
+
+  Badge SHAP among badged products by price sextile:
+                    n  mean_price  mean_shap
+bin                                         
+(5.989, 15.99]     62     11.0003     0.2173
+(15.99, 26.99]     60     21.5755     0.2536
+(26.99, 39.99]     63     33.7127     0.3015
+(39.99, 74.127]    56     57.5841     0.2918
+(74.127, 199.14]   60    131.4305     0.2138
+(199.14, 2096.74]  61    509.5403     0.2597
+  Mean badge SHAP: badged=0.2561, non-badged=-0.0141, all=-0.0007
+
+  XGB counterfactual badge effect (pred(badge=1)-pred(badge=0)), all products, by price octile:
+                                mean  size
+bin                                       
+(2.1590000000000003, 16.292]  0.2061   912
+(16.292, 28.97]               0.2859   912
+(28.97, 48.128]               0.3799   910
+(48.128, 80.7]                0.3116   912
+(80.7, 129.917]               0.2168   911
+(129.917, 195.74]             0.1920   911
+(195.74, 349.99]              0.1880   926
+(349.99, 4198.0]              0.3388   897
+  Mean |SHAP interaction| badge x price among badged: 0.0345
+
+Saved revision_results.json

@@ -4,3 +4,6 @@ __pycache__/
 venv/
 .env
 .streamlit/secrets.toml
+
+# Internal paper-writing notes (not part of the reproducibility package)
+revision/word_prompt*.md

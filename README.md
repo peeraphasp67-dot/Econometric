@@ -2,6 +2,18 @@
 
 งานวิจัยและระบบวิเคราะห์อิทธิพลของ **ป้ายกำกับความยั่งยืน (Sustainability Tags)** ต่อประสิทธิภาพการขายและราคาสินค้าอิเล็กทรอนิกส์บน Amazon โดยใช้กรอบงานวิจัย Q1 (Green Scarcity, Price Sensitivity Meter, Moderated Regressions, SHAP Boundary Analysis)
 
+## 📄 Paper reproducibility (InCIT 2026)
+
+The results in the paper *"Green Signals in E-Commerce: Explainable Modeling of Price Elasticity and Social Proof"* (InCIT 2026, Paper 185) are produced **only** by the scripts in [`revision/`](revision/). See [`revision/README.md`](revision/README.md) for data, environment and run instructions.
+
+The Streamlit dashboard (`app.py`) is an exploratory tool. Its PSM and model settings differ from the paper:
+
+| | Dashboard (`app.py`) | Paper (`revision/`) |
+|---|---|---|
+| Unit of analysis | Listing-level rows | Product-level (one row per product, latest scrape) |
+| PSM | Nearest-neighbour matching with replacement, no caliper | Exact Sponsored × Coupon strata, 1:1 without replacement, caliper 0.02 |
+| ML validation | Dashboard model settings | Nested cross-validation |
+
 ## 🚀 วิธีการติดตั้งและรัน Web App
 
 1. **ติดตั้ง Dependencies:**
