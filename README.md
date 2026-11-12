@@ -1,6 +1,8 @@
 # 🌿 PriceLens — Amazon Green E-Commerce Research Dashboard
 
-งานวิจัยและระบบวิเคราะห์อิทธิพลของ **ป้ายกำกับความยั่งยืน (Sustainability Tags)** ต่อประสิทธิภาพการขายและราคาสินค้าอิเล็กทรอนิกส์บน Amazon โดยใช้กรอบงานวิจัย Q1 (Green Scarcity, Price Sensitivity Meter, Moderated Regressions, SHAP Boundary Analysis)
+Dashboard สำหรับสำรวจความสัมพันธ์ระหว่าง **ป้ายกำกับความยั่งยืน (Sustainability Tags)** กับยอดขายและราคาสินค้าอิเล็กทรอนิกส์บน Amazon ประกอบด้วย Price Sensitivity Meter, Moderated Regression, Propensity Score Matching และ SHAP Boundary Analysis
+
+> ผลลัพธ์ที่รายงานในเปเปอร์ InCIT 2026 มาจากสคริปต์ใน [`revision/`](revision/) เท่านั้น ไม่ได้มาจาก dashboard นี้ (ดูตารางเปรียบเทียบด้านล่าง)
 
 ## 📄 Paper reproducibility (InCIT 2026)
 
@@ -33,7 +35,7 @@ The Streamlit dashboard (`app.py`) is an exploratory tool. Its PSM and model set
 - **ชุดข้อมูลแบบไดนามิก** — ใช้ demo dataset ที่มีให้ หรืออัปโหลดไฟล์ของตัวเอง (.csv / .xlsx) พร้อมระบบ column mapping ให้จับคู่ฟิลด์เอง
 - **4 แท็บวิเคราะห์หลัก:**
   1. **PSM & Descriptive** — Price Sensitivity Meter และสถิติเชิงพรรณนาของชุดข้อมูล
-  2. **Moderated Regression** — ทดสอบสมมติฐาน (Green Scarcity, Hypotheses H1–H3) ด้วยแบบจำลอง Econometric
+  2. **Moderated Regression** — ทดสอบสมมติฐาน H1–H3 ด้วยแบบจำลอง Econometric (ค่าที่ได้เป็นของ dashboard ไม่ใช่ของเปเปอร์)
   3. **SHAP Boundary Analysis** — วิเคราะห์ feature importance และจุดตัดสินใจของโมเดล tree-based (Random Forest / XGBoost)
   4. **ROI Simulator** — จำลองผลกระทบของป้ายกำกับความยั่งยืนต่อยอดขายที่คาดการณ์ พร้อมเปรียบเทียบระหว่างโมเดล (OLS, Ridge, Random Forest, XGBoost)
 - **โมเดลพยากรณ์แบบเลือกได้** — สลับเครื่องมือพยากรณ์ระหว่าง OLS Regression, Ridge Regression, Random Forest และ XGBoost ได้จากแถบด้านข้าง

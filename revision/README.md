@@ -48,6 +48,7 @@ XGBoost).
 | `results.txt` | Full text log of every table and test (sections 1–8 below) |
 | `revision_results.json` | Machine-readable results; input to `make_figures.py` |
 | `fig1.png` – `fig6.png` | Figures at 300 dpi, sized to the IEEE column |
+| `shap_seed_sensitivity.py` → `shap_seed_sensitivity.txt` | Seed-averaged SHAP values reported in the paper: refits the fixed-parameter XGBoost model of `make_figures.py` with seeds 0–19. Run with `python shap_seed_sensitivity.py ../data/amazon_products_sales_data_cleaned.csv > shap_seed_sensitivity.txt` |
 
 `make_figures.py` writes `fig1.png`–`fig6.png` to the current directory. The copies used in the
 paper are committed in [`figures/`](figures/).
@@ -74,6 +75,17 @@ A clean run with `requirements-paper.txt` should give (see `results.txt`):
 - Model C (listing level): green × price 0.4473
 - Nested CV R²: OLS 0.4603, Random Forest 0.4805, XGBoost 0.4794
 - Leakage check (listing level, Random Forest): random KFold R² 0.865 vs GroupKFold R² 0.202
-- mean |SHAP| of the badge: 0.026
+- mean |SHAP| of the badge: 0.0261 for the single seed-42 draw in Fig. 5 (Linux), 0.024 seed-averaged (see Platform note)
 
-The ML and SHAP values can differ in the last decimal across platforms and BLAS builds.
+### Platform note
+
+- **Sections 1–6** (sample flow, Table I, PSM, all regressions, ordered logit) reproduce exactly on any platform.
+- **Sections 7–8** (nested CV, leakage check, SHAP) depend on the platform. XGBoost's random stream for row/column subsampling (`subsample`, `colsample_bytree`) differs by OS, so the same seed gives a slightly different model. Thread count was tested and ruled out on Linux: `n_jobs` = 1, 2 and 8 give identical results.
+- **Original environment:** Linux x86_64, Python 3.11.15, OpenBLAS, 2 CPU threads, with the versions in `requirements-paper.txt`.
+- **Example (Windows 11, same pinned versions):** XGBoost nested-CV R² 0.4789 (vs 0.4794), GroupKFold Random Forest R² 0.1998 (vs 0.2023). The badge mean |SHAP| was 0.0239 (vs 0.0261), both in section 8 and in `make_figures.py`.
+- **Fig. 5–6** show one draw (seed 42, Linux: badge mean |SHAP| 0.0261).
+- **Seed-averaged values in the paper:** the paper reports seed-averaged SHAP values from `shap_seed_sensitivity.py` (20 seeds, Linux).
+  - Badge mean |SHAP|: 0.024 (range 0.022–0.026).
+  - Mean badge attribution among badged products: +0.236 log points ≈ +27% (range +24% to +30%).
+  - On Windows the same script gives means of 0.024 and +0.235 (≈ +26.5%), with a range of 0.022–0.026 for the badge mean |SHAP| (min 0.0215).
+
